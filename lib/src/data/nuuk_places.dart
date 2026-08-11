@@ -4535,7 +4535,8 @@ const nuukPlaces = <Place>[
   ),
   Place(
     id: 'index-nuummi-pineqaatissinneqarsimasunut-inissiisarfik-472ed0d8',
-    name: 'Nuummi Pineqaatissinneqarsimasunut inissiisarfik / Anstalten for Domfældte i Nuuk',
+    name:
+        'Nuummi Pineqaatissinneqarsimasunut inissiisarfik / Anstalten for Domfældte i Nuuk',
     category: PlaceCategory.publicService,
     coordinate: LatLng(64.2004033, -51.6526839),
     address: 'Prison',
