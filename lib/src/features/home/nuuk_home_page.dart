@@ -1,0 +1,1451 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_map/flutter_map.dart' as fm;
+import 'package:latlong2/latlong.dart';
+import 'package:maplibre_gl/maplibre_gl.dart' as ml;
+
+import '../../constants/nuuk_map.dart';
+import '../../data/nuuk_places.dart';
+import '../../models/map_style_choice.dart';
+import '../../models/offline_search_entry.dart';
+import '../../models/place.dart';
+import '../../models/transport_mode.dart';
+import '../../services/carplay_bridge.dart';
+import '../../services/offline_data_repository.dart';
+import '../../services/offline_router.dart';
+
+typedef NuukMapBuilder = Widget Function(BuildContext context);
+
+class NuukHomePage extends StatefulWidget {
+  const NuukHomePage({super.key, this.carPlayBridge, this.mapBuilder});
+
+  final CarPlayBridge? carPlayBridge;
+  final NuukMapBuilder? mapBuilder;
+
+  @override
+  State<NuukHomePage> createState() => _NuukHomePageState();
+}
+
+class _NuukHomePageState extends State<NuukHomePage> {
+  TransportMode _selectedMode = TransportMode.drive;
+  MapPalette _selectedPalette = MapPalette.blueGreen;
+  MapTone _selectedTone = MapTone.light;
+  bool _openNowOnly = true;
+  int _recenterRequest = 0;
+  LatLng _cameraTarget = NuukMap.center;
+  OfflineRoute? _activeRoute;
+  OfflineSearchEntry? _activeDestination;
+  late final CarPlayBridge _carPlayBridge;
+  late final Future<OfflineDataRepository> _offlineDataFuture;
+
+  NuukMapStyleChoice get _selectedMapStyle =>
+      NuukMapStyleChoice(palette: _selectedPalette, tone: _selectedTone);
+
+  @override
+  void initState() {
+    super.initState();
+    _carPlayBridge = widget.carPlayBridge ?? CarPlayBridge();
+    _offlineDataFuture = OfflineDataRepository.load();
+    _carPlayBridge.updateVisiblePlaces(_visiblePlaces);
+  }
+
+  List<Place> get _visiblePlaces {
+    final now = DateTime.now();
+    return nuukPlaces.where((place) {
+      final openMatches = !_openNowOnly || place.isOpenAt(now);
+      return openMatches;
+    }).toList();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final places = _visiblePlaces;
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child:
+                widget.mapBuilder?.call(context) ??
+                _NuukMapView(
+                  places: places,
+                  styleChoice: _selectedMapStyle,
+                  cameraTarget: _cameraTarget,
+                  recenterRequest: _recenterRequest,
+                  routePoints: _activeRoute?.points ?? const [],
+                  destination: _activeDestination?.coordinate,
+                  onPlaceSelected: _showPlace,
+                ),
+          ),
+          SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
+                children: [
+                  Align(
+                    alignment: Alignment.topRight,
+                    child: _MapButton(
+                      icon: Icons.tune,
+                      tooltip: 'Settings',
+                      onPressed: _showSettings,
+                    ),
+                  ),
+                  const Spacer(),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      _MapButton(
+                        icon: Icons.search,
+                        tooltip: 'Search Nuuk',
+                        onPressed: _showSearch,
+                      ),
+                      const SizedBox(width: 12),
+                      _PlacesClusterButton(onPressed: _showPlaces),
+                      const Spacer(),
+                      _MapButton(
+                        icon: _selectedMode.icon,
+                        tooltip: _selectedMode.label,
+                        onPressed: _showTransportModes,
+                      ),
+                      const SizedBox(width: 12),
+                      _MapButton(
+                        icon: Icons.my_location,
+                        tooltip: 'Nuuk Center',
+                        onPressed: _recenterMap,
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _setOpenNowOnly(bool value) {
+    setState(() => _openNowOnly = value);
+    _carPlayBridge.updateVisiblePlaces(_visiblePlaces);
+  }
+
+  void _setMode(TransportMode mode) {
+    setState(() => _selectedMode = mode);
+  }
+
+  void _setPalette(MapPalette palette) {
+    setState(() => _selectedPalette = palette);
+  }
+
+  void _setTone(MapTone tone) {
+    setState(() => _selectedTone = tone);
+  }
+
+  void _recenterMap() {
+    setState(() {
+      _cameraTarget = NuukMap.center;
+      _activeRoute = null;
+      _activeDestination = null;
+      _recenterRequest++;
+    });
+  }
+
+  void _showSearch() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _OfflineSearchSheet(
+        offlineDataFuture: _offlineDataFuture,
+        onSelected: _focusSearchEntry,
+      ),
+    );
+  }
+
+  void _showSettings() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _SettingsSheet(
+        selectedPalette: _selectedPalette,
+        selectedTone: _selectedTone,
+        selectedMode: _selectedMode,
+        openNowOnly: _openNowOnly,
+        usesDesktopMapFallback: _usesDesktopMapFallback,
+        onPaletteChanged: _setPalette,
+        onToneChanged: _setTone,
+        onModeChanged: _setMode,
+        onOpenNowChanged: _setOpenNowOnly,
+      ),
+    );
+  }
+
+  void _showPlaces() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => _PlacesSheet(
+        offlineDataFuture: _offlineDataFuture,
+        onPlaceSelected: _focusSearchEntry,
+      ),
+    );
+  }
+
+  void _showTransportModes() {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) =>
+          _TransportSheet(selectedMode: _selectedMode, onModeChanged: _setMode),
+    );
+  }
+
+  void _showPlace(Place place) {
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _PlaceSheet(
+        place: place,
+        selectedMode: _selectedMode,
+        onStartNavigation: () => _startNavigation(place),
+      ),
+    );
+  }
+
+  Future<void> _focusSearchEntry(OfflineSearchEntry entry) async {
+    Navigator.of(context).pop();
+    final repository = await _offlineDataFuture;
+    final route = repository.router.route(
+      from: NuukMap.center,
+      to: entry.coordinate,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _cameraTarget = entry.coordinate;
+      _activeRoute = route;
+      _activeDestination = entry;
+      _recenterRequest++;
+    });
+
+    _showRouteMessage(route, entry.label);
+  }
+
+  Future<void> _startNavigation(Place place) async {
+    await _carPlayBridge.activateNavigation(
+      destination: place,
+      mode: _selectedMode,
+    );
+
+    final repository = await _offlineDataFuture;
+    final route = repository.router.route(
+      from: NuukMap.center,
+      to: place.coordinate,
+    );
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _cameraTarget = place.coordinate;
+      _activeRoute = route;
+      _activeDestination = OfflineSearchEntry(
+        id: place.id,
+        kind: 'store',
+        label: place.name,
+        category: place.category.label,
+        group: place.category.label,
+        subcategory: place.category.label,
+        icon: 'grocery',
+        address: place.address,
+        coordinate: place.coordinate,
+        searchText: place.name.toLowerCase(),
+      );
+      _recenterRequest++;
+    });
+
+    _showRouteMessage(route, place.name);
+  }
+
+  void _showRouteMessage(OfflineRoute? route, String destination) {
+    final message = route == null
+        ? 'No local driving route found to $destination'
+        : '${(route.distanceMeters / 1000).toStringAsFixed(1)} km local route to $destination';
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _NuukMapView extends StatelessWidget {
+  const _NuukMapView({
+    required this.places,
+    required this.styleChoice,
+    required this.cameraTarget,
+    required this.recenterRequest,
+    required this.routePoints,
+    required this.destination,
+    required this.onPlaceSelected,
+  });
+
+  final List<Place> places;
+  final NuukMapStyleChoice styleChoice;
+  final LatLng cameraTarget;
+  final int recenterRequest;
+  final List<LatLng> routePoints;
+  final LatLng? destination;
+  final ValueChanged<Place> onPlaceSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    if (_usesDesktopMapFallback) {
+      return _NuukDesktopMapView(
+        places: places,
+        styleChoice: styleChoice,
+        cameraTarget: cameraTarget,
+        recenterRequest: recenterRequest,
+        routePoints: routePoints,
+        destination: destination,
+        onPlaceSelected: onPlaceSelected,
+      );
+    }
+
+    return _NuukMapLibreView(
+      places: places,
+      styleChoice: styleChoice,
+      cameraTarget: cameraTarget,
+      recenterRequest: recenterRequest,
+      routePoints: routePoints,
+      destination: destination,
+      onPlaceSelected: onPlaceSelected,
+    );
+  }
+}
+
+class _NuukDesktopMapView extends StatefulWidget {
+  const _NuukDesktopMapView({
+    required this.places,
+    required this.styleChoice,
+    required this.cameraTarget,
+    required this.recenterRequest,
+    required this.routePoints,
+    required this.destination,
+    required this.onPlaceSelected,
+  });
+
+  final List<Place> places;
+  final NuukMapStyleChoice styleChoice;
+  final LatLng cameraTarget;
+  final int recenterRequest;
+  final List<LatLng> routePoints;
+  final LatLng? destination;
+  final ValueChanged<Place> onPlaceSelected;
+
+  @override
+  State<_NuukDesktopMapView> createState() => _NuukDesktopMapViewState();
+}
+
+class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
+  final _mapController = fm.MapController();
+
+  @override
+  void didUpdateWidget(_NuukDesktopMapView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.recenterRequest != widget.recenterRequest) {
+      _mapController.move(widget.cameraTarget, NuukMap.initialZoom + 1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return fm.FlutterMap(
+      mapController: _mapController,
+      options: fm.MapOptions(
+        initialCenter: NuukMap.center,
+        initialZoom: NuukMap.initialZoom,
+        minZoom: NuukMap.minZoom,
+        maxZoom: NuukMap.maxZoom,
+        cameraConstraint: fm.CameraConstraint.containCenter(
+          bounds: fm.LatLngBounds(NuukMap.southWest, NuukMap.northEast),
+        ),
+      ),
+      children: [
+        fm.TileLayer(
+          urlTemplate: NuukMap.rasterTileUrl,
+          userAgentPackageName: NuukMap.userAgentPackageName,
+          tileBuilder: widget.styleChoice.rasterTileBuilder,
+        ),
+        if (widget.routePoints.length > 1)
+          fm.PolylineLayer(
+            polylines: [
+              fm.Polyline(
+                points: widget.routePoints,
+                color: widget.styleChoice.markerFlutterColor,
+                strokeWidth: 5,
+                borderColor: Colors.white,
+                borderStrokeWidth: 2,
+              ),
+            ],
+          ),
+        fm.MarkerLayer(
+          markers: [
+            fm.Marker(
+              point: NuukMap.center,
+              width: 44,
+              height: 44,
+              child: _CarMarker(color: widget.styleChoice.markerFlutterColor),
+            ),
+            if (widget.destination != null)
+              fm.Marker(
+                point: widget.destination!,
+                width: 42,
+                height: 42,
+                child: _DestinationMarker(
+                  color: widget.styleChoice.markerFlutterColor,
+                ),
+              ),
+            for (final place in widget.places)
+              fm.Marker(
+                point: place.coordinate,
+                width: 38,
+                height: 38,
+                child: _PlaceMarker(
+                  color: widget.styleChoice.markerFlutterColor,
+                  onTap: () => widget.onPlaceSelected(place),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _NuukMapLibreView extends StatefulWidget {
+  const _NuukMapLibreView({
+    required this.places,
+    required this.styleChoice,
+    required this.cameraTarget,
+    required this.recenterRequest,
+    required this.routePoints,
+    required this.destination,
+    required this.onPlaceSelected,
+  });
+
+  final List<Place> places;
+  final NuukMapStyleChoice styleChoice;
+  final LatLng cameraTarget;
+  final int recenterRequest;
+  final List<LatLng> routePoints;
+  final LatLng? destination;
+  final ValueChanged<Place> onPlaceSelected;
+
+  @override
+  State<_NuukMapLibreView> createState() => _NuukMapLibreViewState();
+}
+
+class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
+  ml.MapLibreMapController? _controller;
+  String? _styleJson;
+  int _styleLoadGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadStyle();
+  }
+
+  @override
+  void didUpdateWidget(_NuukMapLibreView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.styleChoice.id != widget.styleChoice.id) {
+      _loadStyle();
+      return;
+    }
+
+    if (oldWidget.places != widget.places) {
+      _syncMapAnnotations();
+    }
+
+    if (oldWidget.routePoints != widget.routePoints ||
+        oldWidget.destination != widget.destination) {
+      _syncMapAnnotations();
+    }
+
+    if (oldWidget.recenterRequest != widget.recenterRequest) {
+      _recenterMap();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final styleJson = _styleJson;
+    if (styleJson == null) {
+      return ColoredBox(
+        color: widget.styleChoice.canvasColor,
+        child: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return ml.MapLibreMap(
+      key: ValueKey(widget.styleChoice.id),
+      styleString: styleJson,
+      initialCameraPosition: const ml.CameraPosition(
+        target: ml.LatLng(NuukMap.centerLatitude, NuukMap.centerLongitude),
+        zoom: NuukMap.initialZoom,
+      ),
+      minMaxZoomPreference: const ml.MinMaxZoomPreference(
+        NuukMap.minZoom,
+        NuukMap.maxZoom,
+      ),
+      cameraTargetBounds: ml.CameraTargetBounds(
+        ml.LatLngBounds(
+          southwest: const ml.LatLng(
+            NuukMap.southLatitude,
+            NuukMap.westLongitude,
+          ),
+          northeast: const ml.LatLng(
+            NuukMap.northLatitude,
+            NuukMap.eastLongitude,
+          ),
+        ),
+      ),
+      compassEnabled: false,
+      myLocationEnabled: true,
+      attributionButtonPosition: ml.AttributionButtonPosition.bottomLeft,
+      onMapCreated: (controller) {
+        _controller = controller;
+        controller.onCircleTapped.add(_handleCircleTapped);
+      },
+      onStyleLoadedCallback: _syncMapAnnotations,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller?.onCircleTapped.remove(_handleCircleTapped);
+    super.dispose();
+  }
+
+  Future<void> _loadStyle() async {
+    final generation = ++_styleLoadGeneration;
+    final style = await rootBundle.loadString(widget.styleChoice.assetPath);
+    if (!mounted || generation != _styleLoadGeneration) {
+      return;
+    }
+
+    setState(() {
+      _styleJson = style.replaceAll(
+        NuukMap.vectorTileUrlPlaceholder,
+        NuukMap.vectorTileUrl,
+      );
+    });
+  }
+
+  Future<void> _syncMapAnnotations() async {
+    final controller = _controller;
+    if (controller == null) {
+      return;
+    }
+
+    await controller.clearCircles();
+    await controller.clearLines();
+    if (widget.routePoints.length > 1) {
+      await controller.addLine(
+        ml.LineOptions(
+          geometry: widget.routePoints
+              .map((point) => ml.LatLng(point.latitude, point.longitude))
+              .toList(growable: false),
+          lineColor: widget.styleChoice.markerColor,
+          lineWidth: 5,
+          lineOpacity: 0.92,
+        ),
+      );
+    }
+    await controller.addCircle(
+      ml.CircleOptions(
+        geometry: const ml.LatLng(
+          NuukMap.centerLatitude,
+          NuukMap.centerLongitude,
+        ),
+        circleRadius: 10,
+        circleColor: '#101820',
+        circleOpacity: 0.94,
+        circleStrokeWidth: 3,
+        circleStrokeColor: widget.styleChoice.markerColor,
+      ),
+    );
+    if (widget.destination != null) {
+      await controller.addCircle(
+        ml.CircleOptions(
+          geometry: ml.LatLng(
+            widget.destination!.latitude,
+            widget.destination!.longitude,
+          ),
+          circleRadius: 10,
+          circleColor: widget.styleChoice.markerColor,
+          circleOpacity: 0.96,
+          circleStrokeWidth: 3,
+          circleStrokeColor: '#FFFFFF',
+        ),
+      );
+    }
+    await controller.addCircles(
+      widget.places
+          .map(
+            (place) => ml.CircleOptions(
+              geometry: ml.LatLng(
+                place.coordinate.latitude,
+                place.coordinate.longitude,
+              ),
+              circleRadius: 7,
+              circleColor: widget.styleChoice.markerColor,
+              circleOpacity: 0.9,
+              circleStrokeWidth: 2,
+              circleStrokeColor: '#FFFFFF',
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  Future<void> _recenterMap() async {
+    await _controller?.animateCamera(
+      ml.CameraUpdate.newCameraPosition(
+        ml.CameraPosition(
+          target: ml.LatLng(
+            NuukMap.clampToBounds(widget.cameraTarget).latitude,
+            NuukMap.clampToBounds(widget.cameraTarget).longitude,
+          ),
+          zoom: NuukMap.initialZoom + 1,
+        ),
+      ),
+    );
+  }
+
+  void _handleCircleTapped(ml.Circle circle) {
+    final tappedGeometry = circle.options.geometry;
+    if (tappedGeometry == null) {
+      return;
+    }
+
+    for (final place in widget.places) {
+      if ((place.coordinate.latitude - tappedGeometry.latitude).abs() <
+              0.0001 &&
+          (place.coordinate.longitude - tappedGeometry.longitude).abs() <
+              0.0001) {
+        widget.onPlaceSelected(place);
+        return;
+      }
+    }
+  }
+}
+
+class _OfflineSearchSheet extends StatefulWidget {
+  const _OfflineSearchSheet({
+    required this.offlineDataFuture,
+    required this.onSelected,
+  });
+
+  final Future<OfflineDataRepository> offlineDataFuture;
+  final ValueChanged<OfflineSearchEntry> onSelected;
+
+  @override
+  State<_OfflineSearchSheet> createState() => _OfflineSearchSheetState();
+}
+
+class _OfflineSearchSheetState extends State<_OfflineSearchSheet> {
+  String _query = '';
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.74,
+        child: FutureBuilder<OfflineDataRepository>(
+          future: widget.offlineDataFuture,
+          builder: (context, snapshot) {
+            final repository = snapshot.data;
+            final results = repository?.search(_query) ?? const [];
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SheetTitle(
+                  title: 'Search Nuuk',
+                  subtitle: 'Addresses, streets, and stores work offline',
+                ),
+                TextField(
+                  autofocus: true,
+                  textInputAction: TextInputAction.search,
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'Street, address, or store',
+                    border: OutlineInputBorder(),
+                  ),
+                  onChanged: (value) => setState(() => _query = value),
+                ),
+                const SizedBox(height: 14),
+                if (repository == null)
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else
+                  Expanded(
+                    child: results.isEmpty
+                        ? const Center(child: Text('No Nuuk result found'))
+                        : ListView.separated(
+                            itemBuilder: (context, index) {
+                              final result = results[index].entry;
+                              return _SearchResultTile(
+                                entry: result,
+                                onTap: () => widget.onSelected(result),
+                              );
+                            },
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemCount: results.length,
+                          ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchResultTile extends StatelessWidget {
+  const _SearchResultTile({required this.entry, required this.onTap});
+
+  final OfflineSearchEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF3F6F5),
+      borderRadius: BorderRadius.circular(8),
+      child: ListTile(
+        onTap: onTap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        leading: Icon(_iconForEntry(entry)),
+        title: Text(
+          entry.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          [
+            entry.category,
+            entry.address,
+          ].where((value) => value.isNotEmpty).join(' · '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.near_me),
+      ),
+    );
+  }
+}
+
+class _MapButton extends StatelessWidget {
+  const _MapButton({
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xEE101820),
+      elevation: 6,
+      shadowColor: Colors.black45,
+      borderRadius: BorderRadius.circular(8),
+      child: IconButton(
+        tooltip: tooltip,
+        onPressed: onPressed,
+        color: Colors.white,
+        icon: Icon(icon),
+      ),
+    );
+  }
+}
+
+class _PlacesClusterButton extends StatelessWidget {
+  const _PlacesClusterButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xEE101820),
+      elevation: 6,
+      shadowColor: Colors.black45,
+      shape: const CircleBorder(),
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: const SizedBox(
+          width: 48,
+          height: 48,
+          child: Padding(
+            padding: EdgeInsets.all(8),
+            child: Wrap(
+              spacing: 3,
+              runSpacing: 3,
+              children: [
+                Icon(Icons.local_grocery_store, color: Colors.white, size: 14),
+                Icon(Icons.restaurant, color: Colors.white, size: 14),
+                Icon(Icons.museum, color: Colors.white, size: 14),
+                Icon(Icons.place, color: Colors.white, size: 14),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CarMarker extends StatelessWidget {
+  const _CarMarker({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: const Color(0xEE101820),
+        shape: BoxShape.circle,
+        border: Border.all(color: color, width: 3),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      child: const Icon(Icons.directions_car, color: Colors.white, size: 22),
+    );
+  }
+}
+
+class _PlaceMarker extends StatelessWidget {
+  const _PlaceMarker({required this.color, required this.onTap});
+
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(color: Colors.white, width: 2),
+          boxShadow: const [
+            BoxShadow(
+              color: Colors.black38,
+              blurRadius: 8,
+              offset: Offset(0, 2),
+            ),
+          ],
+        ),
+        child: const Icon(Icons.storefront, color: Colors.white, size: 18),
+      ),
+    );
+  }
+}
+
+class _DestinationMarker extends StatelessWidget {
+  const _DestinationMarker({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color,
+        shape: BoxShape.circle,
+        border: Border.all(color: Colors.white, width: 3),
+        boxShadow: const [
+          BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      child: const Icon(Icons.flag, color: Colors.white, size: 20),
+    );
+  }
+}
+
+class _SettingsSheet extends StatelessWidget {
+  const _SettingsSheet({
+    required this.selectedPalette,
+    required this.selectedTone,
+    required this.selectedMode,
+    required this.openNowOnly,
+    required this.usesDesktopMapFallback,
+    required this.onPaletteChanged,
+    required this.onToneChanged,
+    required this.onModeChanged,
+    required this.onOpenNowChanged,
+  });
+
+  final MapPalette selectedPalette;
+  final MapTone selectedTone;
+  final TransportMode selectedMode;
+  final bool openNowOnly;
+  final bool usesDesktopMapFallback;
+  final ValueChanged<MapPalette> onPaletteChanged;
+  final ValueChanged<MapTone> onToneChanged;
+  final ValueChanged<TransportMode> onModeChanged;
+  final ValueChanged<bool> onOpenNowChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SheetTitle(title: 'Settings', subtitle: 'Map and route defaults'),
+          _OptionGroup(
+            label: 'Style',
+            child: SegmentedButton<MapPalette>(
+              segments: [
+                for (final palette in MapPalette.values)
+                  ButtonSegment(value: palette, label: Text(palette.label)),
+              ],
+              selected: {selectedPalette},
+              onSelectionChanged: (selection) =>
+                  onPaletteChanged(selection.first),
+            ),
+          ),
+          _OptionGroup(
+            label: 'Tone',
+            child: SegmentedButton<MapTone>(
+              segments: [
+                for (final tone in MapTone.values)
+                  ButtonSegment(value: tone, label: Text(tone.label)),
+              ],
+              selected: {selectedTone},
+              onSelectionChanged: (selection) => onToneChanged(selection.first),
+            ),
+          ),
+          _OptionGroup(
+            label: 'Transport',
+            child: DropdownButtonFormField<TransportMode>(
+              initialValue: selectedMode,
+              decoration: const InputDecoration(border: OutlineInputBorder()),
+              items: [
+                for (final mode in TransportMode.values)
+                  DropdownMenuItem(value: mode, child: Text(mode.label)),
+              ],
+              onChanged: (mode) {
+                if (mode != null) {
+                  onModeChanged(mode);
+                }
+              },
+            ),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Show open places first'),
+            subtitle: const Text('Hide closed stores in the quick list'),
+            value: openNowOnly,
+            onChanged: onOpenNowChanged,
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.map_outlined),
+            title: Text(
+              usesDesktopMapFallback ? 'Desktop debug map' : 'MapLibre map',
+            ),
+            subtitle: Text(
+              usesDesktopMapFallback
+                  ? 'Windows uses a raster fallback because MapLibre does not support Windows.'
+                  : 'iOS and Android use the Maputnik styles and vector tiles.',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlacesSheet extends StatefulWidget {
+  const _PlacesSheet({
+    required this.onPlaceSelected,
+    required this.offlineDataFuture,
+  });
+
+  final Future<OfflineDataRepository> offlineDataFuture;
+  final ValueChanged<OfflineSearchEntry> onPlaceSelected;
+
+  @override
+  State<_PlacesSheet> createState() => _PlacesSheetState();
+}
+
+class _PlacesSheetState extends State<_PlacesSheet> {
+  String? _selectedGroup;
+  String? _selectedSubcategory;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.68,
+        child: FutureBuilder<OfflineDataRepository>(
+          future: widget.offlineDataFuture,
+          builder: (context, snapshot) {
+            final repository = snapshot.data;
+            if (repository == null) {
+              return const Center(child: CircularProgressIndicator());
+            }
+
+            final selectedGroup = _selectedGroup;
+            final places = selectedGroup == null
+                ? const <OfflineSearchEntry>[]
+                : repository.placesForGroup(
+                    selectedGroup,
+                    subcategory: _selectedSubcategory,
+                  );
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _SheetTitle(
+                  title: 'Places',
+                  subtitle: selectedGroup ?? 'Choose a category',
+                ),
+                if (selectedGroup == null)
+                  Expanded(
+                    child: GridView.count(
+                      crossAxisCount: MediaQuery.sizeOf(context).width > 700
+                          ? 3
+                          : 2,
+                      mainAxisSpacing: 10,
+                      crossAxisSpacing: 10,
+                      childAspectRatio: 2.45,
+                      children: [
+                        for (final group in repository.placeGroups)
+                          _PlaceGroupCard(
+                            group: group,
+                            count: repository.placesForGroup(group).length,
+                            onTap: () => setState(() {
+                              _selectedGroup = group;
+                              _selectedSubcategory = null;
+                            }),
+                          ),
+                      ],
+                    ),
+                  )
+                else ...[
+                  Row(
+                    children: [
+                      TextButton.icon(
+                        onPressed: () => setState(() {
+                          _selectedGroup = null;
+                          _selectedSubcategory = null;
+                        }),
+                        icon: const Icon(Icons.chevron_left),
+                        label: const Text('Categories'),
+                      ),
+                    ],
+                  ),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ChoiceChip(
+                          label: const Text('All'),
+                          selected: _selectedSubcategory == null,
+                          onSelected: (_) =>
+                              setState(() => _selectedSubcategory = null),
+                        ),
+                        const SizedBox(width: 8),
+                        for (final subcategory
+                            in repository.subcategoriesForGroup(
+                              selectedGroup,
+                            )) ...[
+                          ChoiceChip(
+                            avatar: Icon(
+                              _iconForSubcategory(selectedGroup, subcategory),
+                              size: 18,
+                            ),
+                            label: Text(subcategory),
+                            selected: _selectedSubcategory == subcategory,
+                            onSelected: (_) => setState(
+                              () => _selectedSubcategory = subcategory,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  Expanded(
+                    child: places.isEmpty
+                        ? const Center(
+                            child: Text('No places in this category'),
+                          )
+                        : ListView.separated(
+                            itemBuilder: (context, index) {
+                              final place = places[index];
+                              return _OfflinePlaceTile(
+                                entry: place,
+                                onTap: () => widget.onPlaceSelected(place),
+                              );
+                            },
+                            separatorBuilder: (_, _) =>
+                                const SizedBox(height: 10),
+                            itemCount: places.length,
+                          ),
+                  ),
+                ],
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _PlaceGroupCard extends StatelessWidget {
+  const _PlaceGroupCard({
+    required this.group,
+    required this.count,
+    required this.onTap,
+  });
+
+  final String group;
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF3F6F5),
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              CircleAvatar(
+                backgroundColor: const Color(0xFF101820),
+                foregroundColor: Colors.white,
+                child: Icon(_iconForGroup(group), size: 20),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      group,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text('$count places'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TransportSheet extends StatelessWidget {
+  const _TransportSheet({
+    required this.selectedMode,
+    required this.onModeChanged,
+  });
+
+  final TransportMode selectedMode;
+  final ValueChanged<TransportMode> onModeChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _SheetTitle(title: 'Route', subtitle: 'Choose how to get there'),
+          for (final mode in TransportMode.values)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(mode.icon),
+              title: Text(mode.label),
+              subtitle: Text(mode.description),
+              trailing: selectedMode == mode ? const Icon(Icons.check) : null,
+              onTap: () {
+                onModeChanged(mode);
+                Navigator.of(context).pop();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _OfflinePlaceTile extends StatelessWidget {
+  const _OfflinePlaceTile({required this.entry, required this.onTap});
+
+  final OfflineSearchEntry entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF3F6F5),
+      borderRadius: BorderRadius.circular(8),
+      child: ListTile(
+        onTap: onTap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        leading: Icon(_iconForEntry(entry)),
+        title: Text(
+          entry.label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        subtitle: Text(
+          [
+            entry.subcategory,
+            entry.address,
+          ].where((value) => value.isNotEmpty).join(' · '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        trailing: const Icon(Icons.chevron_right),
+      ),
+    );
+  }
+}
+
+class _PlaceSheet extends StatelessWidget {
+  const _PlaceSheet({
+    required this.place,
+    required this.selectedMode,
+    required this.onStartNavigation,
+  });
+
+  final Place place;
+  final TransportMode selectedMode;
+  final VoidCallback onStartNavigation;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          AspectRatio(
+            aspectRatio: 16 / 7,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: Image.network(place.imageUrl, fit: BoxFit.cover),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            place.name,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(place.address),
+          const SizedBox(height: 10),
+          Text(place.openingHours.summary),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onStartNavigation,
+              icon: Icon(selectedMode.icon),
+              label: Text('${selectedMode.label} to this place'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SheetFrame extends StatelessWidget {
+  const _SheetFrame({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+        child: child,
+      ),
+    );
+  }
+}
+
+class _SheetTitle extends StatelessWidget {
+  const _SheetTitle({required this.title, required this.subtitle});
+
+  final String title;
+  final String subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 2),
+          Text(subtitle, style: Theme.of(context).textTheme.bodySmall),
+        ],
+      ),
+    );
+  }
+}
+
+class _OptionGroup extends StatelessWidget {
+  const _OptionGroup({required this.label, required this.child});
+
+  final String label;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: Theme.of(context).textTheme.labelLarge),
+          const SizedBox(height: 8),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+bool get _usesDesktopMapFallback {
+  if (kIsWeb) {
+    return false;
+  }
+
+  return switch (defaultTargetPlatform) {
+    TargetPlatform.windows ||
+    TargetPlatform.linux ||
+    TargetPlatform.macOS => true,
+    _ => false,
+  };
+}
+
+extension on TransportMode {
+  IconData get icon => switch (this) {
+    TransportMode.drive => Icons.directions_car,
+    TransportMode.bus => Icons.directions_bus,
+    TransportMode.walk => Icons.directions_walk,
+    TransportMode.taxi => Icons.local_taxi,
+    TransportMode.bike => Icons.directions_bike,
+  };
+}
+
+IconData _iconForEntry(OfflineSearchEntry entry) {
+  return switch (entry.icon) {
+    'grocery' => Icons.local_grocery_store,
+    'convenience' => Icons.local_convenience_store,
+    'restaurant' => Icons.restaurant,
+    'cafe' => Icons.local_cafe,
+    'museum' => Icons.museum,
+    'attraction' => Icons.attractions,
+    'fuel' => Icons.local_gas_station,
+    'transport' => Icons.directions_bus,
+    'service' => Icons.account_balance,
+    'shop' => Icons.storefront,
+    'address' => Icons.home,
+    _ => Icons.place,
+  };
+}
+
+IconData _iconForGroup(String group) {
+  return switch (group) {
+    'Grocery' => Icons.local_grocery_store,
+    'Food & Drink' => Icons.restaurant,
+    'Attractions' => Icons.museum,
+    'Transport' => Icons.directions_bus,
+    'Services' => Icons.account_balance,
+    'Shopping' => Icons.storefront,
+    _ => Icons.place,
+  };
+}
+
+IconData _iconForSubcategory(String group, String subcategory) {
+  if (group == 'Grocery' && subcategory == 'Convenience store') {
+    return Icons.local_convenience_store;
+  }
+  if (group == 'Grocery') {
+    return Icons.local_grocery_store;
+  }
+  return _iconForGroup(group);
+}
+
+extension on NuukMapStyleChoice {
+  fm.TileBuilder get rasterTileBuilder {
+    return (context, tileWidget, tile) {
+      final tonedTile = tone == MapTone.dark
+          ? fm.darkModeTileBuilder(context, tileWidget, tile)
+          : tileWidget;
+      final tint = palette == MapPalette.blueGreen
+          ? const Color(0xFF0B7A75)
+          : const Color(0xFFA2772B);
+
+      return ColorFiltered(
+        colorFilter: ColorFilter.mode(
+          tint.withValues(alpha: tone == MapTone.dark ? 0.28 : 0.18),
+          BlendMode.softLight,
+        ),
+        child: tonedTile,
+      );
+    };
+  }
+}

@@ -1,0 +1,28 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+coverage/
+node_modules/
+
+# Android/iOS generated and local files
+android/.gradle/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+ios/Pods/
+ios/Runner.xcworkspace/
+
+# IDE/editor
+.idea/
+*.iml
+
+# Local map source/build outputs
+*.osm.pbf
+*.mbtiles
+*.pmtiles
+
+# OS
+.DS_Store
+Thumbs.db

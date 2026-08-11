@@ -1,0 +1,36 @@
+{
+  "version": 8,
+  "name": "Nuuk City Live - Golden Grey Dark",
+  "metadata": {
+    "maputnik:renderer": "mbgljs",
+    "nuukCityLive:palette": "golden-grey",
+    "nuukCityLive:tone": "dark"
+  },
+  "center": [-51.6875, 64.17734],
+  "zoom": 13,
+  "bearing": 0,
+  "pitch": 0,
+  "glyphs": "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+  "sources": {
+    "nuuk": {
+      "type": "vector",
+      "tiles": ["http://localhost:8080/data/nuuk/{z}/{x}/{y}.pbf"],
+      "minzoom": 0,
+      "maxzoom": 14,
+      "attribution": "© OpenStreetMap contributors"
+    }
+  },
+  "layers": [
+    {"id": "background", "type": "background", "paint": {"background-color": "#151512"}},
+    {"id": "landcover", "type": "fill", "source": "nuuk", "source-layer": "landcover", "paint": {"fill-color": "#2C2C27", "fill-opacity": 0.82}},
+    {"id": "landuse", "type": "fill", "source": "nuuk", "source-layer": "landuse", "paint": {"fill-color": "#343026", "fill-opacity": 0.72}},
+    {"id": "water", "type": "fill", "source": "nuuk", "source-layer": "water", "paint": {"fill-color": "#30383B"}},
+    {"id": "waterway", "type": "line", "source": "nuuk", "source-layer": "waterway", "paint": {"line-color": "#4B5558", "line-width": 1.1}},
+    {"id": "building", "type": "fill", "source": "nuuk", "source-layer": "building", "minzoom": 13, "paint": {"fill-color": "#3D3930", "fill-outline-color": "#5B5343", "fill-opacity": 0.92}},
+    {"id": "road-minor", "type": "line", "source": "nuuk", "source-layer": "transportation", "filter": ["in", ["get", "class"], ["literal", ["minor", "service", "track", "path"]]], "paint": {"line-color": "#555047", "line-width": ["interpolate", ["linear"], ["zoom"], 11, 0.45, 15, 4.2], "line-opacity": 0.92}},
+    {"id": "road-major", "type": "line", "source": "nuuk", "source-layer": "transportation", "filter": ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary", "trunk"]]], "paint": {"line-color": "#C69B45", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.4, 15, 7.5], "line-opacity": 0.96}},
+    {"id": "road-outline", "type": "line", "source": "nuuk", "source-layer": "transportation", "filter": ["in", ["get", "class"], ["literal", ["primary", "secondary", "tertiary", "trunk"]]], "paint": {"line-color": "#090908", "line-width": ["interpolate", ["linear"], ["zoom"], 10, 0.45, 15, 2.1]}},
+    {"id": "poi-label", "type": "symbol", "source": "nuuk", "source-layer": "poi", "minzoom": 14, "layout": {"text-field": ["coalesce", ["get", "name:en"], ["get", "name"]], "text-font": ["Open Sans Regular"], "text-size": 11, "text-offset": [0, 0.7], "text-anchor": "top"}, "paint": {"text-color": "#E0C789", "text-halo-color": "#151512", "text-halo-width": 1.2}},
+    {"id": "place-label", "type": "symbol", "source": "nuuk", "source-layer": "place", "layout": {"text-field": ["coalesce", ["get", "name:en"], ["get", "name"]], "text-font": ["Open Sans Semibold"], "text-size": ["interpolate", ["linear"], ["zoom"], 9, 13, 14, 20]}, "paint": {"text-color": "#F1DCA5", "text-halo-color": "#151512", "text-halo-width": 1.4}}
+  ]
+}

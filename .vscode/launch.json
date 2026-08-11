@@ -1,0 +1,39 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Nuuk City Live (Android Emulator - local tiles)",
+      "request": "launch",
+      "type": "dart",
+      "env": {
+        "JAVA_HOME": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.8-hotspot"
+      },
+      "toolArgs": [
+        "--dart-define=NCL_VECTOR_TILE_URL=http://10.0.2.2:8080/data/nuuk/{z}/{x}/{y}.pbf"
+      ]
+    },
+    {
+      "name": "Nuuk City Live (host localhost tiles)",
+      "request": "launch",
+      "type": "dart",
+      "env": {
+        "JAVA_HOME": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.8-hotspot"
+      },
+      "toolArgs": [
+        "--dart-define=NCL_VECTOR_TILE_URL=http://localhost:8080/data/nuuk/{z}/{x}/{y}.pbf"
+      ]
+    },
+    {
+      "name": "Nuuk City Live (Profile)",
+      "request": "launch",
+      "type": "dart",
+      "flutterMode": "profile",
+      "env": {
+        "JAVA_HOME": "C:\\Program Files\\Eclipse Adoptium\\jdk-21.0.12.8-hotspot"
+      },
+      "toolArgs": [
+        "--dart-define=NCL_VECTOR_TILE_URL=http://10.0.2.2:8080/data/nuuk/{z}/{x}/{y}.pbf"
+      ]
+    }
+  ]
+}

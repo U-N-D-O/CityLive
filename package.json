@@ -1,0 +1,19 @@
+{
+  "name": "nuuk-city-live",
+  "version": "1.0.0",
+  "description": "Nuuk City Live is a Flutter/Dart app for navigation and local city information in Nuuk, Greenland. The first product target is a CarPlay-friendly driving experience, with the phone app providing the full map, store discovery, and transport options.",
+  "main": "index.js",
+  "directories": {
+    "lib": "lib",
+    "test": "test"
+  },
+  "scripts": {
+    "extract:nuuk": "node tool/osm/extract_nuuk_offline_data.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "osm-pbf-parser": "^2.3.0"
+  }
+}
