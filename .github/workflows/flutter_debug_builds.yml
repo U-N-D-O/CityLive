@@ -1,10 +1,11 @@
-name: Flutter Debug Builds
+name: Create App Builds
+run-name: Create ${{ inputs.target }} app build
 
 on:
   workflow_dispatch:
     inputs:
       target:
-        description: App artifact to create
+        description: Choose which app artifact to create
         required: true
         default: all
         type: choice
@@ -40,6 +41,9 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Generate app launcher icons
+        run: dart run flutter_launcher_icons
+
       - name: Analyze
         run: flutter analyze
 
@@ -74,6 +78,9 @@ jobs:
 
       - name: Flutter pub get
         run: flutter pub get
+
+      - name: Generate app launcher icons
+        run: dart run flutter_launcher_icons
 
       - name: Build iOS app without codesigning
         run: flutter build ios --release --no-codesign

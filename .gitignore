@@ -6,6 +6,8 @@
 build/
 coverage/
 node_modules/
+__pycache__/
+*.py[cod]
 
 # Android/iOS generated and local files
 android/.gradle/

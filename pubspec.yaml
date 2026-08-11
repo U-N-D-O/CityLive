@@ -21,9 +21,22 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
 
 flutter:
   uses-material-design: true
   assets:
     - assets/maps/styles/
     - assets/data/
+    - assets/pictures/logo/
+
+flutter_launcher_icons:
+  image_path: assets/pictures/logo/app_logo_summer.png
+  android: true
+  ios: true
+  remove_alpha_ios: true
+  min_sdk_android: 23
+  windows:
+    generate: true
+    image_path: assets/pictures/logo/app_logo_summer.png
+    icon_size: 48

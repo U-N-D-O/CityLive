@@ -16,6 +16,7 @@ import pathlib
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
+from typing import Any, Dict, List, Optional
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CATALOG_PATH = ROOT / "assets" / "data" / "curated_places.json"
@@ -59,19 +60,19 @@ def nullable_hour(value: object) -> str:
     return str(int(value))
 
 
-def load_places() -> list[dict[str, object]]:
+def load_places() -> List[Dict[str, Any]]:
     with CATALOG_PATH.open("r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
-def save_places(places: list[dict[str, object]]) -> None:
+def save_places(places: List[Dict[str, Any]]) -> None:
     CATALOG_PATH.write_text(
         json.dumps(places, indent=2, ensure_ascii=False) + "\n",
         encoding="utf-8",
     )
 
 
-def generate_dart(places: list[dict[str, object]]) -> None:
+def generate_dart(places: List[Dict[str, Any]]) -> None:
     lines = [
         "import 'package:latlong2/latlong.dart';",
         "",
@@ -112,7 +113,7 @@ def generate_dart(places: list[dict[str, object]]) -> None:
     DART_PATH.write_text("\n".join(lines), encoding="utf-8")
 
 
-def parse_hour(value: str) -> int | None:
+def parse_hour(value: str) -> Optional[int]:
     stripped = value.strip()
     if not stripped:
         return None
@@ -129,7 +130,7 @@ class PlaceEditor(tk.Tk):
         self.geometry("1040x650")
         self.places = load_places()
         self.selected_index = 0
-        self.vars: dict[str, tk.StringVar] = {
+        self.vars: Dict[str, tk.StringVar] = {
             field: tk.StringVar() for field in FIELDS
         }
 
@@ -221,7 +222,7 @@ class PlaceEditor(tk.Tk):
         if selection:
             self.select_index(selection[0])
 
-    def place_from_form(self) -> dict[str, object]:
+    def place_from_form(self) -> Dict[str, Any]:
         return {
             "id": self.vars["id"].get().strip(),
             "name": self.vars["name"].get().strip(),
@@ -274,4 +275,9 @@ class PlaceEditor(tk.Tk):
 
 
 if __name__ == "__main__":
-    PlaceEditor().mainloop()
+    try:
+        PlaceEditor().mainloop()
+    except FileNotFoundError as error:
+        messagebox.showerror("Missing file", str(error))
+    except tk.TclError as error:
+        print(f"Could not open the place editor window: {error}")

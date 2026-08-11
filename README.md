@@ -29,22 +29,28 @@ Android debugging with MapLibre requires JDK 21. This machine has Temurin JDK 21
 
 ## GitHub Builds
 
-The workflow in `.github/workflows/flutter_debug_builds.yml` only runs when started manually from the GitHub Actions tab. Use the `target` input to choose `android`, `ios`, or `all`. It uploads these artifacts:
+The `Create App Builds` workflow in `.github/workflows/flutter_debug_builds.yml` only runs when started manually from the GitHub Actions tab. Use the `target` input to choose `android`, `ios`, or `all`. It uploads these artifacts:
 
 - `Nuuk-City-Live-android-debug-apk`: Android debug APK for quick device testing.
 - `Nuuk-City-Live-ios-unsigned-ipa`: unsigned iOS IPA built on GitHub-hosted macOS without requiring local Xcode.
 
 The unsigned IPA is packaged for signing or sideload tooling, but real CarPlay testing still requires a signed build with the correct Apple CarPlay entitlement on the app identifier.
 
+The app launcher icons are generated from `assets/pictures/logo/app_logo_summer.png`. After replacing that file, regenerate Android and iOS icons with:
+
+```powershell
+dart run flutter_launcher_icons
+```
+
 ## Curated Place Editor
 
 The starter illustrated places are backed by `assets/data/curated_places.json`. To preview and edit their names, categories, coordinates, opening hours, and image URLs, run:
 
 ```powershell
-python tool/places/preview_places.py
+tool\places\open_place_editor.cmd
 ```
 
-Use `Save all` in the editor to update the JSON and regenerate `lib/src/data/nuuk_places.dart`. If `python` is not on PATH, install Python or fix the Windows `py` launcher before running the editor.
+Use `Save all` in the editor to update the JSON and regenerate `lib/src/data/nuuk_places.dart`. The launcher starts Python if it is installed, or offers to install Python 3.12 for the current Windows user with `winget` if the local Python launcher is broken.
 
 ## OpenStreetMap Notes
 
