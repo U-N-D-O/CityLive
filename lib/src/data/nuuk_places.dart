@@ -662,20 +662,20 @@ const nuukPlaces = <Place>[
     imageUrl: '',
   ),
   Place(
-    id: 'index-11-d82dc978',
-    name: '11',
+    id: 'illorput',
+    name: 'Illorput',
     category: PlaceCategory.culture,
     coordinate: LatLng(64.1809843, -51.7069188),
-    address: '11',
+    address: 'Sorlaat 11',
     openingHours: OpeningHours(
-      weekdayOpen: 0,
-      weekdayClose: 0,
+      weekdayOpen: 8,
+      weekdayClose: 16,
       saturdayOpen: null,
       saturdayClose: null,
       sundayOpen: null,
       sundayClose: null,
     ),
-    imageUrl: '',
+    imageUrl: 'assets/pictures/places/illorput.png',
   ),
   Place(
     id: 'index-118-a027d36d',
@@ -4535,8 +4535,7 @@ const nuukPlaces = <Place>[
   ),
   Place(
     id: 'index-nuummi-pineqaatissinneqarsimasunut-inissiisarfik-472ed0d8',
-    name:
-        'Nuummi Pineqaatissinneqarsimasunut inissiisarfik / Anstalten for Domfældte i Nuuk',
+    name: 'Nuummi Pineqaatissinneqarsimasunut inissiisarfik / Anstalten for Domfældte i Nuuk',
     category: PlaceCategory.publicService,
     coordinate: LatLng(64.2004033, -51.6526839),
     address: 'Prison',

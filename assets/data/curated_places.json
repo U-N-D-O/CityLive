@@ -738,17 +738,17 @@
     }
   },
   {
-    "id": "index-11-d82dc978",
-    "name": "11",
+    "id": "illorput",
+    "name": "Illorput",
     "category": "culture",
     "latitude": 64.1809843,
     "longitude": -51.7069188,
-    "address": "11",
-    "imageUrl": "",
+    "address": "Sorlaat 11",
+    "imageUrl": "assets/pictures/places/illorput.png",
     "phone": "",
     "openingHours": {
-      "weekdayOpen": 0,
-      "weekdayClose": 0,
+      "weekdayOpen": 8,
+      "weekdayClose": 16,
       "saturdayOpen": null,
       "saturdayClose": null,
       "sundayOpen": null,
