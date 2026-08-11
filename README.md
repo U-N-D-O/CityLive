@@ -5,8 +5,9 @@ Nuuk City Live is a Flutter/Dart app for navigation and local city information i
 ## Current Scope
 
 - OpenStreetMap-based Nuuk map centered on the city.
-- Store categories with an "open now" default view.
-- Store detail sheet with image placeholder, opening hours, and one-tap local directions.
+- Map-first home screen with floating search, places, routing, recenter, and settings controls.
+- Category-first Places sheet that starts empty until a category is selected.
+- Grocery taxonomy for Brugseni, Pisiffik, Akiki, and Nukob, with convenience stores grouped under Grocery but shown with a separate icon.
 - Offline Nuuk address, street, and store search generated from the Greenland OSM extract.
 - Offline Nuuk driving route graph generated from the same extract.
 - Transport mode model for drive, bus, walk, taxi, and bike.
@@ -14,18 +15,24 @@ Nuuk City Live is a Flutter/Dart app for navigation and local city information i
 
 ## Setup
 
-The Dart package dependencies have been resolved. If `flutter` is not on your PATH, add the Flutter SDK `bin` folder and restart the terminal. Then run:
+The Flutter platform folders are checked in. If `flutter` is not on your PATH, add the Flutter SDK `bin` folder and restart the terminal. Then run:
 
 ```powershell
-flutter create . --project-name nuuk_city_live --platforms=ios,android
 flutter pub get
 flutter analyze
 flutter test
 ```
 
-The `flutter create` command will add the generated `ios/`, `android/`, and platform runner files around the existing Dart source.
-
 Android debugging with MapLibre requires JDK 21. This machine has Temurin JDK 21 installed at `C:\Program Files\Eclipse Adoptium\jdk-21.0.12.8-hotspot`, and the VS Code F5 launch configs set `JAVA_HOME` to that path.
+
+## GitHub Builds
+
+The workflow in `.github/workflows/flutter_debug_builds.yml` runs on every push to `main` and can also be started manually from the GitHub Actions tab. It uploads these artifacts:
+
+- `Nuuk-City-Live-android-debug-apk`: Android debug APK for quick device testing.
+- `Nuuk-City-Live-ios-unsigned-ipa`: unsigned iOS IPA built on GitHub-hosted macOS without requiring local Xcode.
+
+The unsigned IPA is packaged for signing or sideload tooling, but real CarPlay testing still requires a signed build with the correct Apple CarPlay entitlement on the app identifier.
 
 ## OpenStreetMap Notes
 
@@ -82,7 +89,7 @@ The current offline router is a small client-side route graph for Nuuk driving p
 
 Flutter handles the phone UI. CarPlay itself must be implemented in native iOS with Apple's CarPlay templates, then connected to Flutter through method channels. The Dart-side contract is in `lib/src/services/carplay_bridge.dart`.
 
-This scaffold includes a native iOS CarPlay scene in `ios/Runner/CarPlaySceneDelegate.swift`. To test it in a real vehicle or CarPlay simulator later, the Apple developer account and app identifier must have the correct CarPlay entitlement, most likely the maps/navigation entitlement, and the iOS build must be run from macOS/Xcode.
+This scaffold includes a native iOS CarPlay scene in `ios/Runner/CarPlaySceneDelegate.swift`. To test it in a real vehicle or CarPlay simulator later, the Apple developer account and app identifier must have the correct CarPlay entitlement, most likely the maps/navigation entitlement. GitHub Actions can create the unsigned IPA, but installation in a car requires signing with a provisioning profile that includes that entitlement.
 
 ## Next Technical Milestones
 
