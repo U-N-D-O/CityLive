@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -38,9 +39,12 @@ class _NuukHomePageState extends State<NuukHomePage> {
   MapTone _selectedTone = MapTone.light;
   _AppLanguage _selectedLanguage = _AppLanguage.english;
   bool _openNowOnly = true;
+  bool _followHeading = false;
+  bool _threeDimensionalMap = false;
   int _recenterRequest = 0;
   LatLng _cameraTarget = NuukMap.center;
   LatLng? _currentLocation;
+  double _currentHeading = 0;
   final Set<String> _visibleMapGroups = <String>{};
   OfflineRoute? _activeRoute;
   OfflineSearchEntry? _activeDestination;
@@ -90,85 +94,115 @@ class _NuukHomePageState extends State<NuukHomePage> {
   @override
   Widget build(BuildContext context) {
     final places = _visiblePlaces;
+    final styleChoice = _selectedMapStyle;
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child:
-                widget.mapBuilder?.call(context) ??
-                FutureBuilder<OfflineDataRepository>(
-                  future: _offlineDataFuture,
-                  builder: (context, snapshot) {
-                    final mapEntries = snapshot.data == null
-                        ? const <OfflineSearchEntry>[]
-                        : _mapEntries(snapshot.data!);
+    return Theme(
+      data: _themeForStyle(styleChoice),
+      child: Scaffold(
+        body: Stack(
+          children: [
+            Positioned.fill(
+              child:
+                  widget.mapBuilder?.call(context) ??
+                  FutureBuilder<OfflineDataRepository>(
+                    future: _offlineDataFuture,
+                    builder: (context, snapshot) {
+                      final mapEntries = snapshot.data == null
+                          ? const <OfflineSearchEntry>[]
+                          : _mapEntries(snapshot.data!);
 
-                    return _NuukMapView(
-                      places: places,
-                      mapEntries: mapEntries,
-                      styleChoice: _selectedMapStyle,
-                      cameraTarget: _cameraTarget,
-                      recenterRequest: _recenterRequest,
-                      routePoints: _activeRoute?.points ?? const [],
-                      destination: _activeDestination?.coordinate,
-                      destinationIcon: _activeDestination == null
-                          ? null
-                          : _iconForEntry(_activeDestination!),
-                      currentLocation: _currentLocation,
-                      onPlaceSelected: _showPlace,
-                      onEntrySelected: _showOfflinePlace,
-                      onMapLongPressed: _showDroppedPin,
-                    );
-                  },
-                ),
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(14),
-              child: Column(
-                children: [
-                  Align(
-                    alignment: Alignment.topRight,
-                    child: _MapButton(
-                      icon: Icons.tune,
-                      tooltip: 'Settings',
-                      onPressed: _showSettings,
+                      return _NuukMapView(
+                        places: places,
+                        mapEntries: mapEntries,
+                        styleChoice: styleChoice,
+                        cameraTarget: _cameraTarget,
+                        recenterRequest: _recenterRequest,
+                        mapBearing: _mapBearing,
+                        mapTilt: _mapTilt,
+                        routePoints: _activeRoute?.points ?? const [],
+                        destination: _activeDestination?.coordinate,
+                        destinationIcon: _activeDestination == null
+                            ? null
+                            : _iconForEntry(_activeDestination!),
+                        currentLocation: _currentLocation,
+                        currentHeading: _currentHeading,
+                        onPlaceSelected: _showPlace,
+                        onEntrySelected: _showOfflinePlace,
+                        onMapLongPressed: _showDroppedPin,
+                      );
+                    },
+                  ),
+            ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  children: [
+                    Align(
+                      alignment: Alignment.topRight,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _MapButton(
+                            icon: Icons.tune,
+                            tooltip: 'Settings',
+                            onPressed: _showSettings,
+                          ),
+                          const SizedBox(height: 10),
+                          _MapButton(
+                            icon: Icons.navigation,
+                            tooltip: 'Follow direction',
+                            selected: _followHeading,
+                            onPressed: _toggleFollowHeading,
+                          ),
+                          const SizedBox(height: 10),
+                          _MapButton(
+                            icon: Icons.view_in_ar,
+                            tooltip: '3D map view',
+                            selected: _threeDimensionalMap,
+                            onPressed: _toggleThreeDimensionalMap,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  const Spacer(),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      _MapButton(
-                        icon: Icons.search,
-                        tooltip: 'Search Nuuk',
-                        onPressed: _showSearch,
-                      ),
-                      const SizedBox(width: 12),
-                      _PlacesClusterButton(onPressed: _showPlaces),
-                      const Spacer(),
-                      _MapButton(
-                        icon: _selectedMode.icon,
-                        tooltip: _selectedMode.label,
-                        onPressed: _showTransportModes,
-                      ),
-                      const SizedBox(width: 12),
-                      _MapButton(
-                        icon: Icons.my_location,
-                        tooltip: _selectedLanguage.myLocation,
-                        onPressed: _recenterMap,
-                      ),
-                    ],
-                  ),
-                ],
+                    const Spacer(),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        _MapButton(
+                          icon: Icons.search,
+                          tooltip: 'Search Nuuk',
+                          onPressed: _showSearch,
+                        ),
+                        const SizedBox(width: 12),
+                        _PlacesClusterButton(onPressed: _showPlaces),
+                        const Spacer(),
+                        _MapButton(
+                          icon: _selectedMode.icon,
+                          tooltip: _selectedMode.label,
+                          onPressed: _showTransportModes,
+                        ),
+                        const SizedBox(width: 12),
+                        _MapButton(
+                          icon: Icons.my_location,
+                          tooltip: _selectedLanguage.myLocation,
+                          onPressed: _recenterMap,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
+
+  double get _mapBearing => _followHeading ? _currentHeading : 0;
+
+  double get _mapTilt => _threeDimensionalMap ? 58 : 0;
 
   void _setOpenNowOnly(bool value) {
     setState(() => _openNowOnly = value);
@@ -185,6 +219,23 @@ class _NuukHomePageState extends State<NuukHomePage> {
 
   void _setTone(MapTone tone) {
     setState(() => _selectedTone = tone);
+  }
+
+  void _toggleFollowHeading() {
+    setState(() {
+      _followHeading = !_followHeading;
+      if (_followHeading && _currentLocation != null) {
+        _cameraTarget = _currentLocation!;
+      }
+      _recenterRequest++;
+    });
+  }
+
+  void _toggleThreeDimensionalMap() {
+    setState(() {
+      _threeDimensionalMap = !_threeDimensionalMap;
+      _recenterRequest++;
+    });
   }
 
   void _setLanguage(_AppLanguage language) {
@@ -419,11 +470,12 @@ class _NuukHomePageState extends State<NuukHomePage> {
         ? 'Turn on location access to route from your real position.'
         : route == null
         ? 'No local driving route found to $destination'
-        : '${(route.distanceMeters / 1000).toStringAsFixed(1)} km local route to $destination';
+        : '${(route.distanceMeters / 1000).toStringAsFixed(1)} km · about ${_estimatedDriveMinutes(route.distanceMeters)} min to $destination';
 
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+    _showStatusOverlay(
+      message,
+      icon: hasOrigin && route != null ? Icons.route : Icons.location_off,
+    );
   }
 
   Future<void> _startLocationUpdates({bool showErrors = false}) async {
@@ -488,13 +540,56 @@ class _NuukHomePageState extends State<NuukHomePage> {
 
     setState(() {
       _currentLocation = coordinate;
+      if (position.heading.isFinite && position.heading >= 0) {
+        _currentHeading = position.heading;
+      }
+      if (_followHeading) {
+        _cameraTarget = coordinate;
+        _recenterRequest++;
+      }
     });
   }
 
   void _showLocationMessage(String message) {
+    _showStatusOverlay(message, icon: Icons.my_location);
+  }
+
+  void _showStatusOverlay(String message, {required IconData icon}) {
+    final colorScheme = Theme.of(context).colorScheme;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
+      ..showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(18, 0, 18, 92),
+          duration: const Duration(seconds: 4),
+          elevation: 10,
+          backgroundColor: colorScheme.inverseSurface.withValues(alpha: 0.94),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(
+              color: colorScheme.primary.withValues(alpha: 0.25),
+            ),
+          ),
+          content: Row(
+            children: [
+              Icon(icon, color: colorScheme.inversePrimary, size: 20),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  message,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colorScheme.onInverseSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
   }
 }
 
@@ -505,10 +600,13 @@ class _NuukMapView extends StatelessWidget {
     required this.styleChoice,
     required this.cameraTarget,
     required this.recenterRequest,
+    required this.mapBearing,
+    required this.mapTilt,
     required this.routePoints,
     required this.destination,
     required this.destinationIcon,
     required this.currentLocation,
+    required this.currentHeading,
     required this.onPlaceSelected,
     required this.onEntrySelected,
     required this.onMapLongPressed,
@@ -519,10 +617,13 @@ class _NuukMapView extends StatelessWidget {
   final NuukMapStyleChoice styleChoice;
   final LatLng cameraTarget;
   final int recenterRequest;
+  final double mapBearing;
+  final double mapTilt;
   final List<LatLng> routePoints;
   final LatLng? destination;
   final IconData? destinationIcon;
   final LatLng? currentLocation;
+  final double currentHeading;
   final ValueChanged<Place> onPlaceSelected;
   final ValueChanged<OfflineSearchEntry> onEntrySelected;
   final ValueChanged<LatLng> onMapLongPressed;
@@ -536,10 +637,13 @@ class _NuukMapView extends StatelessWidget {
         styleChoice: styleChoice,
         cameraTarget: cameraTarget,
         recenterRequest: recenterRequest,
+        mapBearing: mapBearing,
+        mapTilt: mapTilt,
         routePoints: routePoints,
         destination: destination,
         destinationIcon: destinationIcon,
         currentLocation: currentLocation,
+        currentHeading: currentHeading,
         onPlaceSelected: onPlaceSelected,
         onEntrySelected: onEntrySelected,
         onMapLongPressed: onMapLongPressed,
@@ -552,10 +656,13 @@ class _NuukMapView extends StatelessWidget {
       styleChoice: styleChoice,
       cameraTarget: cameraTarget,
       recenterRequest: recenterRequest,
+      mapBearing: mapBearing,
+      mapTilt: mapTilt,
       routePoints: routePoints,
       destination: destination,
       destinationIcon: destinationIcon,
       currentLocation: currentLocation,
+      currentHeading: currentHeading,
       onPlaceSelected: onPlaceSelected,
       onEntrySelected: onEntrySelected,
       onMapLongPressed: onMapLongPressed,
@@ -570,10 +677,13 @@ class _NuukDesktopMapView extends StatefulWidget {
     required this.styleChoice,
     required this.cameraTarget,
     required this.recenterRequest,
+    required this.mapBearing,
+    required this.mapTilt,
     required this.routePoints,
     required this.destination,
     required this.destinationIcon,
     required this.currentLocation,
+    required this.currentHeading,
     required this.onPlaceSelected,
     required this.onEntrySelected,
     required this.onMapLongPressed,
@@ -584,10 +694,13 @@ class _NuukDesktopMapView extends StatefulWidget {
   final NuukMapStyleChoice styleChoice;
   final LatLng cameraTarget;
   final int recenterRequest;
+  final double mapBearing;
+  final double mapTilt;
   final List<LatLng> routePoints;
   final LatLng? destination;
   final IconData? destinationIcon;
   final LatLng? currentLocation;
+  final double currentHeading;
   final ValueChanged<Place> onPlaceSelected;
   final ValueChanged<OfflineSearchEntry> onEntrySelected;
   final ValueChanged<LatLng> onMapLongPressed;
@@ -646,7 +759,10 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
                 point: widget.currentLocation!,
                 width: 44,
                 height: 44,
-                child: _CarMarker(color: widget.styleChoice.markerFlutterColor),
+                child: _CarMarker(
+                  color: widget.styleChoice.markerFlutterColor,
+                  headingDegrees: widget.currentHeading,
+                ),
               ),
             if (widget.destination != null)
               fm.Marker(
@@ -694,10 +810,13 @@ class _NuukMapLibreView extends StatefulWidget {
     required this.styleChoice,
     required this.cameraTarget,
     required this.recenterRequest,
+    required this.mapBearing,
+    required this.mapTilt,
     required this.routePoints,
     required this.destination,
     required this.destinationIcon,
     required this.currentLocation,
+    required this.currentHeading,
     required this.onPlaceSelected,
     required this.onEntrySelected,
     required this.onMapLongPressed,
@@ -708,10 +827,13 @@ class _NuukMapLibreView extends StatefulWidget {
   final NuukMapStyleChoice styleChoice;
   final LatLng cameraTarget;
   final int recenterRequest;
+  final double mapBearing;
+  final double mapTilt;
   final List<LatLng> routePoints;
   final LatLng? destination;
   final IconData? destinationIcon;
   final LatLng? currentLocation;
+  final double currentHeading;
   final ValueChanged<Place> onPlaceSelected;
   final ValueChanged<OfflineSearchEntry> onEntrySelected;
   final ValueChanged<LatLng> onMapLongPressed;
@@ -748,11 +870,14 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
     if (oldWidget.routePoints != widget.routePoints ||
         oldWidget.destination != widget.destination ||
         oldWidget.destinationIcon != widget.destinationIcon ||
-        oldWidget.currentLocation != widget.currentLocation) {
+        oldWidget.currentLocation != widget.currentLocation ||
+        oldWidget.currentHeading != widget.currentHeading) {
       _syncMapAnnotations();
     }
 
-    if (oldWidget.recenterRequest != widget.recenterRequest) {
+    if (oldWidget.recenterRequest != widget.recenterRequest ||
+        oldWidget.mapBearing != widget.mapBearing ||
+        oldWidget.mapTilt != widget.mapTilt) {
       _recenterMap();
     }
   }
@@ -770,9 +895,14 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
     return ml.MapLibreMap(
       key: ValueKey(widget.styleChoice.id),
       styleString: styleJson,
-      initialCameraPosition: const ml.CameraPosition(
-        target: ml.LatLng(NuukMap.centerLatitude, NuukMap.centerLongitude),
+      initialCameraPosition: ml.CameraPosition(
+        target: const ml.LatLng(
+          NuukMap.centerLatitude,
+          NuukMap.centerLongitude,
+        ),
         zoom: NuukMap.initialZoom,
+        bearing: widget.mapBearing,
+        tilt: widget.mapTilt,
       ),
       minMaxZoomPreference: const ml.MinMaxZoomPreference(
         NuukMap.minZoom,
@@ -851,12 +981,11 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
     }
 
     if (widget.currentLocation != null) {
-      await _addMapSymbol(
+      await _addVehicleSymbol(
         controller: controller,
         point: widget.currentLocation!,
-        icon: Icons.directions_car,
         color: widget.styleChoice.markerFlutterColor,
-        selected: true,
+        headingDegrees: widget.currentHeading,
       );
     }
 
@@ -914,15 +1043,40 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
     );
   }
 
+  Future<void> _addVehicleSymbol({
+    required ml.MapLibreMapController controller,
+    required LatLng point,
+    required Color color,
+    required double headingDegrees,
+  }) async {
+    final imageName = _vehicleImageName(color);
+    if (_registeredMarkerImages.add(imageName)) {
+      await controller.addImage(
+        imageName,
+        await _vehicleMarkerImageBytes(color),
+      );
+    }
+
+    await controller.addSymbol(
+      ml.SymbolOptions(
+        geometry: ml.LatLng(point.latitude, point.longitude),
+        iconImage: imageName,
+        iconSize: 1,
+        iconAnchor: 'center',
+        iconRotate: headingDegrees,
+      ),
+    );
+  }
+
   Future<void> _recenterMap() async {
+    final clamped = NuukMap.clampToBounds(widget.cameraTarget);
     await _controller?.animateCamera(
       ml.CameraUpdate.newCameraPosition(
         ml.CameraPosition(
-          target: ml.LatLng(
-            NuukMap.clampToBounds(widget.cameraTarget).latitude,
-            NuukMap.clampToBounds(widget.cameraTarget).longitude,
-          ),
+          target: ml.LatLng(clamped.latitude, clamped.longitude),
           zoom: NuukMap.initialZoom + 1,
+          bearing: widget.mapBearing,
+          tilt: widget.mapTilt,
         ),
       ),
     );
@@ -1039,8 +1193,9 @@ class _SearchResultTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: const Color(0xFFF3F6F5),
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.82),
       borderRadius: BorderRadius.circular(8),
       child: ListTile(
         onTap: onTap,
@@ -1071,23 +1226,28 @@ class _MapButton extends StatelessWidget {
     required this.icon,
     required this.tooltip,
     required this.onPressed,
+    this.selected = false,
   });
 
   final IconData icon;
   final String tooltip;
   final VoidCallback onPressed;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: const Color(0xEE101820),
+      color: selected
+          ? colorScheme.primary
+          : colorScheme.inverseSurface.withValues(alpha: 0.92),
       elevation: 6,
       shadowColor: Colors.black45,
       borderRadius: BorderRadius.circular(8),
       child: IconButton(
         tooltip: tooltip,
         onPressed: onPressed,
-        color: Colors.white,
+        color: selected ? colorScheme.onPrimary : colorScheme.onInverseSurface,
         icon: Icon(icon),
       ),
     );
@@ -1101,15 +1261,16 @@ class _PlacesClusterButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: const Color(0xEE101820),
+      color: colorScheme.inverseSurface.withValues(alpha: 0.92),
       elevation: 6,
       shadowColor: Colors.black45,
       shape: const CircleBorder(),
       child: InkWell(
         customBorder: const CircleBorder(),
         onTap: onPressed,
-        child: const SizedBox(
+        child: SizedBox(
           width: 48,
           height: 48,
           child: Padding(
@@ -1118,10 +1279,26 @@ class _PlacesClusterButton extends StatelessWidget {
               spacing: 3,
               runSpacing: 3,
               children: [
-                Icon(Icons.local_grocery_store, color: Colors.white, size: 14),
-                Icon(Icons.restaurant, color: Colors.white, size: 14),
-                Icon(Icons.museum, color: Colors.white, size: 14),
-                Icon(Icons.place, color: Colors.white, size: 14),
+                Icon(
+                  Icons.local_grocery_store,
+                  color: colorScheme.onInverseSurface,
+                  size: 14,
+                ),
+                Icon(
+                  Icons.restaurant,
+                  color: colorScheme.onInverseSurface,
+                  size: 14,
+                ),
+                Icon(
+                  Icons.museum,
+                  color: colorScheme.onInverseSurface,
+                  size: 14,
+                ),
+                Icon(
+                  Icons.place,
+                  color: colorScheme.onInverseSurface,
+                  size: 14,
+                ),
               ],
             ),
           ),
@@ -1132,9 +1309,10 @@ class _PlacesClusterButton extends StatelessWidget {
 }
 
 class _CarMarker extends StatelessWidget {
-  const _CarMarker({required this.color});
+  const _CarMarker({required this.color, required this.headingDegrees});
 
   final Color color;
+  final double headingDegrees;
 
   @override
   Widget build(BuildContext context) {
@@ -1147,7 +1325,19 @@ class _CarMarker extends StatelessWidget {
           BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2)),
         ],
       ),
-      child: const Icon(Icons.directions_car, color: Colors.white, size: 22),
+      child: Transform.rotate(
+        angle: headingDegrees * math.pi / 180,
+        child: const Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(Icons.navigation, color: Colors.white, size: 28),
+            Padding(
+              padding: EdgeInsets.only(top: 12),
+              child: Icon(Icons.directions_car, color: Colors.white, size: 14),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1339,6 +1529,32 @@ class _PlacesSheet extends StatefulWidget {
 class _PlacesSheetState extends State<_PlacesSheet> {
   String? _selectedGroup;
   String? _selectedSubcategory;
+  late Set<String> _visibleMapGroups;
+
+  @override
+  void initState() {
+    super.initState();
+    _visibleMapGroups = {...widget.visibleMapGroups};
+  }
+
+  @override
+  void didUpdateWidget(_PlacesSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.visibleMapGroups != widget.visibleMapGroups) {
+      _visibleMapGroups = {...widget.visibleMapGroups};
+    }
+  }
+
+  void _setGroupVisible(String group, bool visible) {
+    setState(() {
+      if (visible) {
+        _visibleMapGroups.add(group);
+      } else {
+        _visibleMapGroups.remove(group);
+      }
+    });
+    widget.onMapGroupVisibilityChanged(group, visible);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1370,29 +1586,35 @@ class _PlacesSheetState extends State<_PlacesSheet> {
                 ),
                 if (selectedGroup == null)
                   Expanded(
-                    child: GridView.count(
-                      crossAxisCount: MediaQuery.sizeOf(context).width > 700
-                          ? 3
-                          : 2,
-                      mainAxisSpacing: 10,
-                      crossAxisSpacing: 10,
-                      childAspectRatio: 2.45,
-                      children: [
-                        for (final group in repository.placeGroups)
-                          _PlaceGroupCard(
-                            group: group,
-                            count: repository.placesForGroup(group).length,
-                            visibleOnMap: widget.visibleMapGroups.contains(
-                              group,
-                            ),
-                            onVisibilityChanged: (visible) => widget
-                                .onMapGroupVisibilityChanged(group, visible),
-                            onTap: () => setState(() {
-                              _selectedGroup = group;
-                              _selectedSubcategory = null;
-                            }),
-                          ),
-                      ],
+                    child: LayoutBuilder(
+                      builder: (context, constraints) {
+                        final crossAxisCount = constraints.maxWidth >= 720
+                            ? 3
+                            : constraints.maxWidth >= 520
+                            ? 2
+                            : 1;
+
+                        return GridView.count(
+                          crossAxisCount: crossAxisCount,
+                          mainAxisSpacing: 10,
+                          crossAxisSpacing: 10,
+                          childAspectRatio: crossAxisCount == 1 ? 4.6 : 2.6,
+                          children: [
+                            for (final group in repository.placeGroups)
+                              _PlaceGroupCard(
+                                group: group,
+                                count: repository.placesForGroup(group).length,
+                                visibleOnMap: _visibleMapGroups.contains(group),
+                                onVisibilityChanged: (visible) =>
+                                    _setGroupVisible(group, visible),
+                                onTap: () => setState(() {
+                                  _selectedGroup = group;
+                                  _selectedSubcategory = null;
+                                }),
+                              ),
+                          ],
+                        );
+                      },
                     ),
                   )
                 else ...[
@@ -1485,8 +1707,9 @@ class _PlaceGroupCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: const Color(0xFFF3F6F5),
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.82),
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
@@ -1496,8 +1719,8 @@ class _PlaceGroupCard extends StatelessWidget {
           child: Row(
             children: [
               CircleAvatar(
-                backgroundColor: const Color(0xFF101820),
-                foregroundColor: Colors.white,
+                backgroundColor: colorScheme.inverseSurface,
+                foregroundColor: colorScheme.onInverseSurface,
                 child: Icon(_iconForGroup(group), size: 20),
               ),
               const SizedBox(width: 12),
@@ -1508,9 +1731,12 @@ class _PlaceGroupCard extends StatelessWidget {
                   children: [
                     Text(
                       group,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                      maxLines: 2,
+                      overflow: TextOverflow.fade,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        height: 1.05,
+                      ),
                     ),
                     Text('$count places'),
                   ],
@@ -1521,6 +1747,9 @@ class _PlaceGroupCard extends StatelessWidget {
                 onPressed: () => onVisibilityChanged(!visibleOnMap),
                 icon: Icon(
                   visibleOnMap ? Icons.visibility : Icons.visibility_off,
+                  color: visibleOnMap
+                      ? colorScheme.primary
+                      : colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
@@ -1574,8 +1803,9 @@ class _OfflinePlaceTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     return Material(
-      color: const Color(0xFFF3F6F5),
+      color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.82),
       borderRadius: BorderRadius.circular(8),
       child: ListTile(
         onTap: onTap,
@@ -1858,7 +2088,7 @@ extension on PlaceCategory {
 IconData _iconForEntry(OfflineSearchEntry entry) {
   return switch (entry.icon) {
     'grocery' => Icons.local_grocery_store,
-    'convenience' => Icons.local_convenience_store,
+    'convenience' => Icons.shopping_basket,
     'restaurant' => Icons.restaurant,
     'cafe' => Icons.local_cafe,
     'museum' => Icons.museum,
@@ -1887,7 +2117,7 @@ IconData _iconForGroup(String group) {
 
 IconData _iconForSubcategory(String group, String subcategory) {
   if (group == 'Grocery' && subcategory == 'Convenience store') {
-    return Icons.local_convenience_store;
+    return Icons.shopping_basket;
   }
   if (group == 'Grocery') {
     return Icons.local_grocery_store;
@@ -1897,8 +2127,16 @@ IconData _iconForSubcategory(String group, String subcategory) {
 
 extension on NuukMapStyleChoice {
   String get mapLibreRasterStyleJson {
-    final background = tone == MapTone.dark ? '#111412' : '#F4F1EA';
-    final opacity = tone == MapTone.dark ? 0.74 : 0.92;
+    final background = switch ((palette, tone)) {
+      (MapPalette.blueGreen, MapTone.light) => '#EAF6F2',
+      (MapPalette.blueGreen, MapTone.dark) => '#071514',
+      (MapPalette.goldenGrey, MapTone.light) => '#F4EFE3',
+      (MapPalette.goldenGrey, MapTone.dark) => '#17130B',
+    };
+    final opacity = tone == MapTone.dark ? 0.68 : 0.82;
+    final hue = palette == MapPalette.blueGreen ? 28 : -32;
+    final saturation = palette == MapPalette.blueGreen ? 0.16 : -0.08;
+    final contrast = tone == MapTone.dark ? 0.18 : 0.08;
 
     return jsonEncode({
       'version': 8,
@@ -1921,7 +2159,16 @@ extension on NuukMapStyleChoice {
           'id': 'osm-raster',
           'type': 'raster',
           'source': 'osm-raster',
-          'paint': {'raster-opacity': opacity},
+          'paint': {
+            'raster-opacity': opacity,
+            'raster-hue-rotate': hue,
+            'raster-saturation': saturation,
+            'raster-contrast': contrast,
+            if (tone == MapTone.dark) ...{
+              'raster-brightness-min': 0.18,
+              'raster-brightness-max': 0.72,
+            },
+          },
         },
       ],
     });
@@ -1938,8 +2185,8 @@ extension on NuukMapStyleChoice {
 
       return ColorFiltered(
         colorFilter: ColorFilter.mode(
-          tint.withValues(alpha: tone == MapTone.dark ? 0.28 : 0.18),
-          BlendMode.softLight,
+          tint.withValues(alpha: tone == MapTone.dark ? 0.42 : 0.28),
+          tone == MapTone.dark ? BlendMode.overlay : BlendMode.softLight,
         ),
         child: tonedTile,
       );
@@ -1947,9 +2194,108 @@ extension on NuukMapStyleChoice {
   }
 }
 
+ThemeData _themeForStyle(NuukMapStyleChoice style) {
+  final brightness = style.tone == MapTone.dark
+      ? Brightness.dark
+      : Brightness.light;
+  final colorScheme = ColorScheme.fromSeed(
+    seedColor: style.markerFlutterColor,
+    brightness: brightness,
+  );
+
+  return ThemeData(
+    useMaterial3: true,
+    colorScheme: colorScheme,
+    scaffoldBackgroundColor: style.tone == MapTone.dark
+        ? const Color(0xFF0D1110)
+        : const Color(0xFFF5F3EE),
+    textTheme: ThemeData(brightness: brightness).textTheme.apply(
+      fontFamily: 'Georgia',
+      bodyColor: colorScheme.onSurface,
+      displayColor: colorScheme.onSurface,
+    ),
+    bottomSheetTheme: BottomSheetThemeData(
+      backgroundColor: colorScheme.surface.withValues(alpha: 0.96),
+      dragHandleColor: colorScheme.onSurfaceVariant.withValues(alpha: 0.55),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+    ),
+    snackBarTheme: SnackBarThemeData(
+      behavior: SnackBarBehavior.floating,
+      backgroundColor: colorScheme.inverseSurface,
+      contentTextStyle: TextStyle(
+        color: colorScheme.onInverseSurface,
+        fontWeight: FontWeight.w700,
+      ),
+    ),
+  );
+}
+
+int _estimatedDriveMinutes(double distanceMeters) {
+  final minutes = (distanceMeters / 1000 / 32 * 60).round();
+  return math.max(1, minutes);
+}
+
 String _mapIconImageName(IconData icon, Color color, {required bool selected}) {
   final colorId = color.toString().replaceAll(RegExp('[^0-9A-Za-z]'), '');
   return 'ncl-${icon.codePoint}-$colorId-${selected ? 'selected' : 'normal'}';
+}
+
+String _vehicleImageName(Color color) {
+  final colorId = color.toString().replaceAll(RegExp('[^0-9A-Za-z]'), '');
+  return 'ncl-vehicle-$colorId';
+}
+
+Future<Uint8List> _vehicleMarkerImageBytes(Color color) async {
+  const size = 78.0;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  const center = Offset(size / 2, size / 2);
+
+  canvas.drawCircle(center, 33, Paint()..color = Colors.white);
+  canvas.drawCircle(center, 28, Paint()..color = color);
+  canvas.drawCircle(
+    center,
+    36,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 5
+      ..color = const Color(0xAA101820),
+  );
+
+  final arrowPainter = TextPainter(
+    text: TextSpan(
+      text: String.fromCharCode(Icons.navigation.codePoint),
+      style: TextStyle(
+        color: Colors.white,
+        fontFamily: Icons.navigation.fontFamily,
+        fontSize: 36,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  arrowPainter.paint(canvas, Offset((size - arrowPainter.width) / 2, 13));
+
+  final carPainter = TextPainter(
+    text: TextSpan(
+      text: String.fromCharCode(Icons.directions_car.codePoint),
+      style: TextStyle(
+        color: Colors.white,
+        fontFamily: Icons.directions_car.fontFamily,
+        fontSize: 18,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+  carPainter.paint(canvas, Offset((size - carPainter.width) / 2, 43));
+
+  final image = await recorder.endRecording().toImage(
+    size.toInt(),
+    size.toInt(),
+  );
+  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+  return byteData!.buffer.asUint8List();
 }
 
 Future<Uint8List> _markerImageBytes(
