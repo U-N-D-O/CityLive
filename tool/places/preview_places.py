@@ -13,14 +13,16 @@ from __future__ import annotations
 
 import json
 import pathlib
+import shutil
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Any, Dict, List, Optional
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CATALOG_PATH = ROOT / "assets" / "data" / "curated_places.json"
 DART_PATH = ROOT / "lib" / "src" / "data" / "nuuk_places.dart"
+PLACE_PICTURES_DIR = ROOT / "assets" / "pictures" / "places"
 
 CATEGORIES = [
     "groceries",
@@ -162,23 +164,26 @@ class PlaceEditor(tk.Tk):
 
         buttons = ttk.Frame(editor)
         buttons.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        for column in range(5):
+        for column in range(6):
             buttons.columnconfigure(column, weight=1)
 
-        ttk.Button(buttons, text="Open image", command=self.open_image).grid(
+        ttk.Button(buttons, text="Choose picture", command=self.choose_picture).grid(
             row=0, column=0, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Open map", command=self.open_map).grid(
+        ttk.Button(buttons, text="Open image", command=self.open_image).grid(
             row=0, column=1, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Save place", command=self.save_current).grid(
+        ttk.Button(buttons, text="Open map", command=self.open_map).grid(
             row=0, column=2, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Save all", command=self.save_all).grid(
+        ttk.Button(buttons, text="Save place", command=self.save_current).grid(
             row=0, column=3, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Regenerate Dart", command=self.regenerate).grid(
+        ttk.Button(buttons, text="Save all", command=self.save_all).grid(
             row=0, column=4, sticky="ew", padx=3
+        )
+        ttk.Button(buttons, text="Regenerate Dart", command=self.regenerate).grid(
+            row=0, column=5, sticky="ew", padx=3
         )
 
         self.refresh_list()
@@ -263,9 +268,49 @@ class PlaceEditor(tk.Tk):
         messagebox.showinfo("Generated", f"Updated {DART_PATH.relative_to(ROOT)}")
 
     def open_image(self) -> None:
-        url = self.vars["imageUrl"].get().strip()
-        if url:
-            webbrowser.open(url)
+        image_path = self.vars["imageUrl"].get().strip()
+        if not image_path:
+            return
+
+        if image_path.startswith("assets/"):
+            local_path = ROOT / image_path
+            if not local_path.exists():
+                messagebox.showerror("Missing image", str(local_path))
+                return
+            webbrowser.open(local_path.resolve().as_uri())
+            return
+
+        webbrowser.open(image_path)
+
+    def choose_picture(self) -> None:
+        place_id = self.vars["id"].get().strip()
+        if not place_id:
+            messagebox.showerror("Missing id", "Set the place id before choosing a picture.")
+            return
+
+        source = filedialog.askopenfilename(
+            title="Choose place picture",
+            filetypes=[
+                ("Image files", "*.png *.jpg *.jpeg *.webp"),
+                ("PNG files", "*.png"),
+                ("JPEG files", "*.jpg *.jpeg"),
+                ("WebP files", "*.webp"),
+                ("All files", "*.*"),
+            ],
+        )
+        if not source:
+            return
+
+        source_path = pathlib.Path(source)
+        suffix = source_path.suffix.lower() or ".png"
+        destination = PLACE_PICTURES_DIR / f"{place_id}{suffix}"
+        PLACE_PICTURES_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_path, destination)
+
+        asset_path = destination.relative_to(ROOT).as_posix()
+        self.vars["imageUrl"].set(asset_path)
+        self.save_current()
+        messagebox.showinfo("Picture copied", f"Updated imageUrl to {asset_path}")
 
     def open_map(self) -> None:
         latitude = self.vars["latitude"].get().strip()

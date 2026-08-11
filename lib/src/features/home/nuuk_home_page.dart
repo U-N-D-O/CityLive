@@ -41,6 +41,7 @@ class _NuukHomePageState extends State<NuukHomePage> {
   int _recenterRequest = 0;
   LatLng _cameraTarget = NuukMap.center;
   LatLng? _currentLocation;
+  final Set<String> _visibleMapGroups = <String>{};
   OfflineRoute? _activeRoute;
   OfflineSearchEntry? _activeDestination;
   StreamSubscription<Position>? _locationSubscription;
@@ -73,6 +74,19 @@ class _NuukHomePageState extends State<NuukHomePage> {
     }).toList();
   }
 
+  List<OfflineSearchEntry> _mapEntries(OfflineDataRepository repository) {
+    if (_visibleMapGroups.isEmpty) {
+      return const [];
+    }
+
+    return repository.entries
+        .where(
+          (entry) =>
+              entry.isPlaceListing && _visibleMapGroups.contains(entry.group),
+        )
+        .toList(growable: false);
+  }
+
   @override
   Widget build(BuildContext context) {
     final places = _visiblePlaces;
@@ -83,18 +97,30 @@ class _NuukHomePageState extends State<NuukHomePage> {
           Positioned.fill(
             child:
                 widget.mapBuilder?.call(context) ??
-                _NuukMapView(
-                  places: places,
-                  styleChoice: _selectedMapStyle,
-                  cameraTarget: _cameraTarget,
-                  recenterRequest: _recenterRequest,
-                  routePoints: _activeRoute?.points ?? const [],
-                  destination: _activeDestination?.coordinate,
-                  destinationIcon: _activeDestination == null
-                      ? null
-                      : _iconForEntry(_activeDestination!),
-                  currentLocation: _currentLocation,
-                  onPlaceSelected: _showPlace,
+                FutureBuilder<OfflineDataRepository>(
+                  future: _offlineDataFuture,
+                  builder: (context, snapshot) {
+                    final mapEntries = snapshot.data == null
+                        ? const <OfflineSearchEntry>[]
+                        : _mapEntries(snapshot.data!);
+
+                    return _NuukMapView(
+                      places: places,
+                      mapEntries: mapEntries,
+                      styleChoice: _selectedMapStyle,
+                      cameraTarget: _cameraTarget,
+                      recenterRequest: _recenterRequest,
+                      routePoints: _activeRoute?.points ?? const [],
+                      destination: _activeDestination?.coordinate,
+                      destinationIcon: _activeDestination == null
+                          ? null
+                          : _iconForEntry(_activeDestination!),
+                      currentLocation: _currentLocation,
+                      onPlaceSelected: _showPlace,
+                      onEntrySelected: _showOfflinePlace,
+                      onMapLongPressed: _showDroppedPin,
+                    );
+                  },
                 ),
           ),
           SafeArea(
@@ -165,6 +191,16 @@ class _NuukHomePageState extends State<NuukHomePage> {
     setState(() => _selectedLanguage = language);
   }
 
+  void _setMapGroupVisible(String group, bool visible) {
+    setState(() {
+      if (visible) {
+        _visibleMapGroups.add(group);
+      } else {
+        _visibleMapGroups.remove(group);
+      }
+    });
+  }
+
   Future<void> _recenterMap() async {
     if (_currentLocation == null) {
       await _startLocationUpdates(showErrors: true);
@@ -219,6 +255,8 @@ class _NuukHomePageState extends State<NuukHomePage> {
       isScrollControlled: true,
       builder: (context) => _PlacesSheet(
         offlineDataFuture: _offlineDataFuture,
+        visibleMapGroups: _visibleMapGroups,
+        onMapGroupVisibilityChanged: _setMapGroupVisible,
         onPlaceSelected: _focusSearchEntry,
       ),
     );
@@ -245,8 +283,59 @@ class _NuukHomePageState extends State<NuukHomePage> {
     );
   }
 
+  void _showOfflinePlace(OfflineSearchEntry entry) {
+    final curatedPlace = _curatedPlaceForEntry(entry);
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _OfflineEntrySheet(
+        entry: entry,
+        curatedPlace: curatedPlace,
+        selectedMode: _selectedMode,
+        onStartNavigation: () => _goToEntry(entry),
+      ),
+    );
+  }
+
+  void _showDroppedPin(LatLng coordinate) {
+    final clamped = NuukMap.clampToBounds(coordinate);
+    final entry = OfflineSearchEntry(
+      id: 'pin-${clamped.latitude.toStringAsFixed(5)}-${clamped.longitude.toStringAsFixed(5)}',
+      kind: 'pin',
+      label: 'Dropped pin',
+      category: 'Map point',
+      group: 'Places',
+      subcategory: 'Map point',
+      icon: 'pin',
+      address:
+          '${clamped.latitude.toStringAsFixed(5)}, ${clamped.longitude.toStringAsFixed(5)}',
+      coordinate: clamped,
+      searchText: 'dropped pin',
+    );
+
+    showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => _OfflineEntrySheet(
+        entry: entry,
+        selectedMode: _selectedMode,
+        onStartNavigation: () => _goToEntry(entry),
+      ),
+    );
+  }
+
   Future<void> _focusSearchEntry(OfflineSearchEntry entry) async {
-    Navigator.of(context).pop();
+    await _goToEntry(entry);
+  }
+
+  Future<void> _goToEntry(
+    OfflineSearchEntry entry, {
+    bool closeCurrentSheet = true,
+  }) async {
+    if (closeCurrentSheet && Navigator.of(context).canPop()) {
+      Navigator.of(context).pop();
+    }
+
     final repository = await _offlineDataFuture;
     final origin = _routeOrigin;
     final route = origin == null
@@ -265,6 +354,23 @@ class _NuukHomePageState extends State<NuukHomePage> {
     });
 
     _showRouteMessage(route, entry.label, hasOrigin: origin != null);
+  }
+
+  Place? _curatedPlaceForEntry(OfflineSearchEntry entry) {
+    for (final place in nuukPlaces) {
+      if (place.id == entry.id) {
+        return place;
+      }
+    }
+
+    final normalizedEntry = _normalizeLabel(entry.label);
+    for (final place in nuukPlaces) {
+      if (_normalizeLabel(place.name) == normalizedEntry) {
+        return place;
+      }
+    }
+
+    return null;
   }
 
   Future<void> _startNavigation(Place place) async {
@@ -395,6 +501,7 @@ class _NuukHomePageState extends State<NuukHomePage> {
 class _NuukMapView extends StatelessWidget {
   const _NuukMapView({
     required this.places,
+    required this.mapEntries,
     required this.styleChoice,
     required this.cameraTarget,
     required this.recenterRequest,
@@ -403,9 +510,12 @@ class _NuukMapView extends StatelessWidget {
     required this.destinationIcon,
     required this.currentLocation,
     required this.onPlaceSelected,
+    required this.onEntrySelected,
+    required this.onMapLongPressed,
   });
 
   final List<Place> places;
+  final List<OfflineSearchEntry> mapEntries;
   final NuukMapStyleChoice styleChoice;
   final LatLng cameraTarget;
   final int recenterRequest;
@@ -414,12 +524,15 @@ class _NuukMapView extends StatelessWidget {
   final IconData? destinationIcon;
   final LatLng? currentLocation;
   final ValueChanged<Place> onPlaceSelected;
+  final ValueChanged<OfflineSearchEntry> onEntrySelected;
+  final ValueChanged<LatLng> onMapLongPressed;
 
   @override
   Widget build(BuildContext context) {
     if (_usesDesktopMapFallback) {
       return _NuukDesktopMapView(
         places: places,
+        mapEntries: mapEntries,
         styleChoice: styleChoice,
         cameraTarget: cameraTarget,
         recenterRequest: recenterRequest,
@@ -428,11 +541,14 @@ class _NuukMapView extends StatelessWidget {
         destinationIcon: destinationIcon,
         currentLocation: currentLocation,
         onPlaceSelected: onPlaceSelected,
+        onEntrySelected: onEntrySelected,
+        onMapLongPressed: onMapLongPressed,
       );
     }
 
     return _NuukMapLibreView(
       places: places,
+      mapEntries: mapEntries,
       styleChoice: styleChoice,
       cameraTarget: cameraTarget,
       recenterRequest: recenterRequest,
@@ -441,6 +557,8 @@ class _NuukMapView extends StatelessWidget {
       destinationIcon: destinationIcon,
       currentLocation: currentLocation,
       onPlaceSelected: onPlaceSelected,
+      onEntrySelected: onEntrySelected,
+      onMapLongPressed: onMapLongPressed,
     );
   }
 }
@@ -448,6 +566,7 @@ class _NuukMapView extends StatelessWidget {
 class _NuukDesktopMapView extends StatefulWidget {
   const _NuukDesktopMapView({
     required this.places,
+    required this.mapEntries,
     required this.styleChoice,
     required this.cameraTarget,
     required this.recenterRequest,
@@ -456,9 +575,12 @@ class _NuukDesktopMapView extends StatefulWidget {
     required this.destinationIcon,
     required this.currentLocation,
     required this.onPlaceSelected,
+    required this.onEntrySelected,
+    required this.onMapLongPressed,
   });
 
   final List<Place> places;
+  final List<OfflineSearchEntry> mapEntries;
   final NuukMapStyleChoice styleChoice;
   final LatLng cameraTarget;
   final int recenterRequest;
@@ -467,6 +589,8 @@ class _NuukDesktopMapView extends StatefulWidget {
   final IconData? destinationIcon;
   final LatLng? currentLocation;
   final ValueChanged<Place> onPlaceSelected;
+  final ValueChanged<OfflineSearchEntry> onEntrySelected;
+  final ValueChanged<LatLng> onMapLongPressed;
 
   @override
   State<_NuukDesktopMapView> createState() => _NuukDesktopMapViewState();
@@ -495,6 +619,7 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
         cameraConstraint: fm.CameraConstraint.containCenter(
           bounds: fm.LatLngBounds(NuukMap.southWest, NuukMap.northEast),
         ),
+        onLongPress: (_, point) => widget.onMapLongPressed(point),
       ),
       children: [
         fm.TileLayer(
@@ -544,6 +669,17 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
                   onTap: () => widget.onPlaceSelected(place),
                 ),
               ),
+            for (final entry in widget.mapEntries)
+              fm.Marker(
+                point: entry.coordinate,
+                width: 38,
+                height: 38,
+                child: _PlaceMarker(
+                  color: widget.styleChoice.markerFlutterColor,
+                  icon: _iconForEntry(entry),
+                  onTap: () => widget.onEntrySelected(entry),
+                ),
+              ),
           ],
         ),
       ],
@@ -554,6 +690,7 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
 class _NuukMapLibreView extends StatefulWidget {
   const _NuukMapLibreView({
     required this.places,
+    required this.mapEntries,
     required this.styleChoice,
     required this.cameraTarget,
     required this.recenterRequest,
@@ -562,9 +699,12 @@ class _NuukMapLibreView extends StatefulWidget {
     required this.destinationIcon,
     required this.currentLocation,
     required this.onPlaceSelected,
+    required this.onEntrySelected,
+    required this.onMapLongPressed,
   });
 
   final List<Place> places;
+  final List<OfflineSearchEntry> mapEntries;
   final NuukMapStyleChoice styleChoice;
   final LatLng cameraTarget;
   final int recenterRequest;
@@ -573,6 +713,8 @@ class _NuukMapLibreView extends StatefulWidget {
   final IconData? destinationIcon;
   final LatLng? currentLocation;
   final ValueChanged<Place> onPlaceSelected;
+  final ValueChanged<OfflineSearchEntry> onEntrySelected;
+  final ValueChanged<LatLng> onMapLongPressed;
 
   @override
   State<_NuukMapLibreView> createState() => _NuukMapLibreViewState();
@@ -598,7 +740,8 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
       return;
     }
 
-    if (oldWidget.places != widget.places) {
+    if (oldWidget.places != widget.places ||
+        oldWidget.mapEntries != widget.mapEntries) {
       _syncMapAnnotations();
     }
 
@@ -648,8 +791,12 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
         ),
       ),
       compassEnabled: false,
+      iosLongClickDuration: const Duration(milliseconds: 500),
       myLocationEnabled: true,
       attributionButtonPosition: ml.AttributionButtonPosition.bottomLeft,
+      onMapLongClick: (_, coordinate) => widget.onMapLongPressed(
+        LatLng(coordinate.latitude, coordinate.longitude),
+      ),
       onMapCreated: (controller) {
         _controller = controller;
         controller.onSymbolTapped.add(_handleSymbolTapped);
@@ -731,6 +878,15 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
         color: widget.styleChoice.markerFlutterColor,
       );
     }
+
+    for (final entry in widget.mapEntries) {
+      await _addMapSymbol(
+        controller: controller,
+        point: entry.coordinate,
+        icon: _iconForEntry(entry),
+        color: widget.styleChoice.markerFlutterColor,
+      );
+    }
   }
 
   Future<void> _addMapSymbol({
@@ -784,6 +940,16 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
           (place.coordinate.longitude - tappedGeometry.longitude).abs() <
               0.0001) {
         widget.onPlaceSelected(place);
+        return;
+      }
+    }
+
+    for (final entry in widget.mapEntries) {
+      if ((entry.coordinate.latitude - tappedGeometry.latitude).abs() <
+              0.0001 &&
+          (entry.coordinate.longitude - tappedGeometry.longitude).abs() <
+              0.0001) {
+        widget.onEntrySelected(entry);
         return;
       }
     }
@@ -1157,9 +1323,13 @@ class _PlacesSheet extends StatefulWidget {
   const _PlacesSheet({
     required this.onPlaceSelected,
     required this.offlineDataFuture,
+    required this.visibleMapGroups,
+    required this.onMapGroupVisibilityChanged,
   });
 
   final Future<OfflineDataRepository> offlineDataFuture;
+  final Set<String> visibleMapGroups;
+  final void Function(String group, bool visible) onMapGroupVisibilityChanged;
   final ValueChanged<OfflineSearchEntry> onPlaceSelected;
 
   @override
@@ -1212,6 +1382,11 @@ class _PlacesSheetState extends State<_PlacesSheet> {
                           _PlaceGroupCard(
                             group: group,
                             count: repository.placesForGroup(group).length,
+                            visibleOnMap: widget.visibleMapGroups.contains(
+                              group,
+                            ),
+                            onVisibilityChanged: (visible) => widget
+                                .onMapGroupVisibilityChanged(group, visible),
                             onTap: () => setState(() {
                               _selectedGroup = group;
                               _selectedSubcategory = null;
@@ -1297,11 +1472,15 @@ class _PlaceGroupCard extends StatelessWidget {
   const _PlaceGroupCard({
     required this.group,
     required this.count,
+    required this.visibleOnMap,
+    required this.onVisibilityChanged,
     required this.onTap,
   });
 
   final String group;
   final int count;
+  final bool visibleOnMap;
+  final ValueChanged<bool> onVisibilityChanged;
   final VoidCallback onTap;
 
   @override
@@ -1335,6 +1514,13 @@ class _PlaceGroupCard extends StatelessWidget {
                     ),
                     Text('$count places'),
                   ],
+                ),
+              ),
+              IconButton(
+                tooltip: visibleOnMap ? 'Hide on map' : 'Show on map',
+                onPressed: () => onVisibilityChanged(!visibleOnMap),
+                icon: Icon(
+                  visibleOnMap ? Icons.visibility : Icons.visibility_off,
                 ),
               ),
             ],
@@ -1437,7 +1623,7 @@ class _PlaceSheet extends StatelessWidget {
             aspectRatio: 16 / 7,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: Image.network(place.imageUrl, fit: BoxFit.cover),
+              child: _PlaceImage(path: place.imageUrl),
             ),
           ),
           const SizedBox(height: 16),
@@ -1457,12 +1643,84 @@ class _PlaceSheet extends StatelessWidget {
             child: FilledButton.icon(
               onPressed: onStartNavigation,
               icon: Icon(selectedMode.icon),
-              label: Text('${selectedMode.label} to this place'),
+              label: const Text('Go'),
             ),
           ),
         ],
       ),
     );
+  }
+}
+
+class _OfflineEntrySheet extends StatelessWidget {
+  const _OfflineEntrySheet({
+    required this.entry,
+    required this.selectedMode,
+    required this.onStartNavigation,
+    this.curatedPlace,
+  });
+
+  final OfflineSearchEntry entry;
+  final Place? curatedPlace;
+  final TransportMode selectedMode;
+  final VoidCallback onStartNavigation;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SheetFrame(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (curatedPlace != null) ...[
+            AspectRatio(
+              aspectRatio: 16 / 7,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: _PlaceImage(path: curatedPlace!.imageUrl),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+          Text(
+            entry.label,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 6),
+          Text(entry.address.isEmpty ? entry.category : entry.address),
+          const SizedBox(height: 10),
+          Text(
+            curatedPlace?.openingHours.summary ?? 'Opening hours not added yet',
+          ),
+          const SizedBox(height: 18),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: onStartNavigation,
+              icon: Icon(selectedMode.icon),
+              label: const Text('Go'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PlaceImage extends StatelessWidget {
+  const _PlaceImage({required this.path});
+
+  final String path;
+
+  @override
+  Widget build(BuildContext context) {
+    if (path.startsWith('assets/')) {
+      return Image.asset(path, fit: BoxFit.cover);
+    }
+
+    return Image.network(path, fit: BoxFit.cover);
   }
 }
 
@@ -1597,6 +1855,7 @@ IconData _iconForEntry(OfflineSearchEntry entry) {
     'service' => Icons.account_balance,
     'shop' => Icons.storefront,
     'address' => Icons.home,
+    'pin' => Icons.location_pin,
     _ => Icons.place,
   };
 }
@@ -1725,4 +1984,8 @@ Future<Uint8List> _markerImageBytes(
   );
   final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
   return byteData!.buffer.asUint8List();
+}
+
+String _normalizeLabel(String value) {
+  return value.toLowerCase().replaceAll(RegExp(r'[^a-z0-9æøå]+'), ' ').trim();
 }

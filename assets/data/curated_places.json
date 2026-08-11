@@ -1,13 +1,13 @@
 [
   {
-    "id": "brugseni-nuuk-center",
-    "name": "Brugseni Nuuk Center",
+    "id": "brugseni-nuuk",
+    "name": "Brugseni Nuuk",
     "category": "groceries",
-    "latitude": 64.17465,
-    "longitude": -51.73626,
-    "address": "Nuuk Center, Imaneq, Nuuk",
-    "imageUrl": "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a",
-    "phone": "",
+    "latitude": 64.175555,
+    "longitude": -51.737119,
+    "address": "Brugseni Aqqusinersuaq 2",
+    "imageUrl": "assets/pictures/places/brugseni-nuuk.png",
+    "phone": "32 11 22",
     "openingHours": {
       "weekdayOpen": 8,
       "weekdayClose": 21,
@@ -18,12 +18,12 @@
     }
   },
   {
-    "id": "pisiffik-nuuk",
-    "name": "Pisiffik Nuuk",
+    "id": "pisiffik-nuuk-center",
+    "name": "Pisiffik Nuuk Center",
     "category": "groceries",
     "latitude": 64.17595,
     "longitude": -51.73793,
-    "address": "Aqqusinersuaq, Nuuk",
+    "address": "Imaneq 1",
     "imageUrl": "https://images.unsplash.com/photo-1542838132-92c53300491e",
     "phone": "",
     "openingHours": {

@@ -7,6 +7,8 @@ Nuuk City Live is a Flutter/Dart app for navigation and local city information i
 - OpenStreetMap-based Nuuk map centered on the city.
 - Map-first home screen with floating search, places, routing, recenter, and settings controls.
 - Category-first Places sheet that starts empty until a category is selected.
+- Place categories can be toggled onto the map from the Places sheet; tapping a map marker opens details and `Go` routing.
+- Long-press the map to drop a pin and route to that custom point.
 - Grocery taxonomy for Brugseni, Pisiffik, Akiki, and Nukob, with convenience stores grouped under Grocery but shown with a separate icon.
 - Real device location is used as the route origin when GPS is available; the Nuuk center is no longer shown or used as a fake car position.
 - English is the default app language, with a Kalaallisut option available from settings.
@@ -44,11 +46,13 @@ dart run flutter_launcher_icons
 
 ## Curated Place Editor
 
-The starter illustrated places are backed by `assets/data/curated_places.json`. To preview and edit their names, categories, coordinates, opening hours, and image URLs, run:
+The starter illustrated places are backed by `assets/data/curated_places.json`. To preview and edit their names, categories, coordinates, opening hours, and pictures, run:
 
 ```powershell
 tool\places\open_place_editor.cmd
 ```
+
+Use `Choose picture` to select a local image for the selected place. The editor copies it into `assets/pictures/places/` using the place id, for example `assets/pictures/places/brugseni-nuuk.png`, and updates the place to use that bundled asset instead of an online URL.
 
 Use `Save all` in the editor to update the JSON and regenerate `lib/src/data/nuuk_places.dart`. The launcher starts Python if it is installed, or offers to install Python 3.12 for the current Windows user with `winget` if the local Python launcher is broken.
 

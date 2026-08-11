@@ -5,11 +5,11 @@ import '../models/place.dart';
 
 const nuukPlaces = <Place>[
   Place(
-    id: 'brugseni-nuuk-center',
-    name: 'Brugseni Nuuk Center',
+    id: 'brugseni-nuuk',
+    name: 'Brugseni Nuuk',
     category: PlaceCategory.groceries,
-    coordinate: LatLng(64.17465, -51.73626),
-    address: 'Nuuk Center, Imaneq, Nuuk',
+    coordinate: LatLng(64.175555, -51.737119),
+    address: 'Brugseni Aqqusinersuaq 2',
     openingHours: OpeningHours(
       weekdayOpen: 8,
       weekdayClose: 21,
@@ -18,14 +18,15 @@ const nuukPlaces = <Place>[
       sundayOpen: 10,
       sundayClose: 18,
     ),
-    imageUrl: 'https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a',
+    imageUrl: 'assets/pictures/places/brugseni-nuuk.png',
+    phone: '32 11 22',
   ),
   Place(
-    id: 'pisiffik-nuuk',
-    name: 'Pisiffik Nuuk',
+    id: 'pisiffik-nuuk-center',
+    name: 'Pisiffik Nuuk Center',
     category: PlaceCategory.groceries,
     coordinate: LatLng(64.17595, -51.73793),
-    address: 'Aqqusinersuaq, Nuuk',
+    address: 'Imaneq 1',
     openingHours: OpeningHours(
       weekdayOpen: 8,
       weekdayClose: 20,
@@ -47,6 +48,8 @@ const nuukPlaces = <Place>[
       weekdayClose: 17,
       saturdayOpen: 10,
       saturdayClose: 14,
+      sundayOpen: null,
+      sundayClose: null,
     ),
     imageUrl: 'https://images.unsplash.com/photo-1587854692152-cbe660dbde88',
   ),

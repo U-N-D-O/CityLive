@@ -29,6 +29,7 @@ flutter:
     - assets/maps/styles/
     - assets/data/
     - assets/pictures/logo/
+    - assets/pictures/places/
 
 flutter_launcher_icons:
   image_path: assets/pictures/logo/app_logo_summer.png
