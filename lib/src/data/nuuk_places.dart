@@ -52,7 +52,7 @@ const nuukPlaces = <Place>[
   ),
   Place(
     id: 'katuaq',
-    name: 'Katuaq Cultural Centre',
+    name: 'Katuaq Culture Centre',
     category: PlaceCategory.culture,
     coordinate: LatLng(64.17678, -51.73831),
     address: 'Imaneq 21, Nuuk',

@@ -2,13 +2,20 @@ name: Flutter Debug Builds
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-  pull_request:
+    inputs:
+      target:
+        description: App artifact to create
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - android
+          - ios
 
 jobs:
-  analyze-test-android:
+  build-android-debug-apk:
+    if: ${{ inputs.target == 'all' || inputs.target == 'android' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
 
@@ -50,6 +57,7 @@ jobs:
           retention-days: 30
 
   build-ios-unsigned-ipa:
+    if: ${{ inputs.target == 'all' || inputs.target == 'ios' }}
     runs-on: macos-latest
     timeout-minutes: 45
 

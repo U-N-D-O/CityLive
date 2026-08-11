@@ -1,0 +1,92 @@
+[
+  {
+    "id": "brugseni-nuuk-center",
+    "name": "Brugseni Nuuk Center",
+    "category": "groceries",
+    "latitude": 64.17465,
+    "longitude": -51.73626,
+    "address": "Nuuk Center, Imaneq, Nuuk",
+    "imageUrl": "https://images.unsplash.com/photo-1555529669-e69e7aa0ba9a",
+    "phone": "",
+    "openingHours": {
+      "weekdayOpen": 8,
+      "weekdayClose": 21,
+      "saturdayOpen": 9,
+      "saturdayClose": 20,
+      "sundayOpen": 10,
+      "sundayClose": 18
+    }
+  },
+  {
+    "id": "pisiffik-nuuk",
+    "name": "Pisiffik Nuuk",
+    "category": "groceries",
+    "latitude": 64.17595,
+    "longitude": -51.73793,
+    "address": "Aqqusinersuaq, Nuuk",
+    "imageUrl": "https://images.unsplash.com/photo-1542838132-92c53300491e",
+    "phone": "",
+    "openingHours": {
+      "weekdayOpen": 8,
+      "weekdayClose": 20,
+      "saturdayOpen": 9,
+      "saturdayClose": 18,
+      "sundayOpen": 10,
+      "sundayClose": 17
+    }
+  },
+  {
+    "id": "inussivik-pharmacy",
+    "name": "Nuuk Pharmacy",
+    "category": "pharmacy",
+    "latitude": 64.17656,
+    "longitude": -51.73705,
+    "address": "Central Nuuk",
+    "imageUrl": "https://images.unsplash.com/photo-1587854692152-cbe660dbde88",
+    "phone": "",
+    "openingHours": {
+      "weekdayOpen": 9,
+      "weekdayClose": 17,
+      "saturdayOpen": 10,
+      "saturdayClose": 14,
+      "sundayOpen": null,
+      "sundayClose": null
+    }
+  },
+  {
+    "id": "katuaq",
+    "name": "Katuaq Culture Centre",
+    "category": "culture",
+    "latitude": 64.17678,
+    "longitude": -51.73831,
+    "address": "Imaneq 21, Nuuk",
+    "imageUrl": "https://images.unsplash.com/photo-1518005020951-eccb494ad742",
+    "phone": "",
+    "openingHours": {
+      "weekdayOpen": 10,
+      "weekdayClose": 21,
+      "saturdayOpen": 10,
+      "saturdayClose": 21,
+      "sundayOpen": 12,
+      "sundayClose": 18
+    }
+  },
+  {
+    "id": "nuuk-fuel-stop",
+    "name": "Nuuk Fuel Stop",
+    "category": "fuel",
+    "latitude": 64.18321,
+    "longitude": -51.72191,
+    "address": "Near airport road, Nuuk",
+    "imageUrl": "https://images.unsplash.com/photo-1545558014-8692077e9b5c",
+    "phone": "",
+    "openingHours": {
+      "weekdayOpen": 7,
+      "weekdayClose": 22,
+      "saturdayOpen": 8,
+      "saturdayClose": 22,
+      "sundayOpen": 8,
+      "sundayClose": 21
+    }
+  }
+]

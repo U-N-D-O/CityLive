@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:ui' as ui;
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart' as fm;
+import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:maplibre_gl/maplibre_gl.dart' as ml;
 
@@ -31,11 +36,14 @@ class _NuukHomePageState extends State<NuukHomePage> {
   TransportMode _selectedMode = TransportMode.drive;
   MapPalette _selectedPalette = MapPalette.blueGreen;
   MapTone _selectedTone = MapTone.light;
+  _AppLanguage _selectedLanguage = _AppLanguage.english;
   bool _openNowOnly = true;
   int _recenterRequest = 0;
   LatLng _cameraTarget = NuukMap.center;
+  LatLng? _currentLocation;
   OfflineRoute? _activeRoute;
   OfflineSearchEntry? _activeDestination;
+  StreamSubscription<Position>? _locationSubscription;
   late final CarPlayBridge _carPlayBridge;
   late final Future<OfflineDataRepository> _offlineDataFuture;
 
@@ -48,6 +56,13 @@ class _NuukHomePageState extends State<NuukHomePage> {
     _carPlayBridge = widget.carPlayBridge ?? CarPlayBridge();
     _offlineDataFuture = OfflineDataRepository.load();
     _carPlayBridge.updateVisiblePlaces(_visiblePlaces);
+    _startLocationUpdates();
+  }
+
+  @override
+  void dispose() {
+    _locationSubscription?.cancel();
+    super.dispose();
   }
 
   List<Place> get _visiblePlaces {
@@ -75,6 +90,10 @@ class _NuukHomePageState extends State<NuukHomePage> {
                   recenterRequest: _recenterRequest,
                   routePoints: _activeRoute?.points ?? const [],
                   destination: _activeDestination?.coordinate,
+                  destinationIcon: _activeDestination == null
+                      ? null
+                      : _iconForEntry(_activeDestination!),
+                  currentLocation: _currentLocation,
                   onPlaceSelected: _showPlace,
                 ),
           ),
@@ -111,7 +130,7 @@ class _NuukHomePageState extends State<NuukHomePage> {
                       const SizedBox(width: 12),
                       _MapButton(
                         icon: Icons.my_location,
-                        tooltip: 'Nuuk Center',
+                        tooltip: _selectedLanguage.myLocation,
                         onPressed: _recenterMap,
                       ),
                     ],
@@ -142,14 +161,24 @@ class _NuukHomePageState extends State<NuukHomePage> {
     setState(() => _selectedTone = tone);
   }
 
-  void _recenterMap() {
+  void _setLanguage(_AppLanguage language) {
+    setState(() => _selectedLanguage = language);
+  }
+
+  Future<void> _recenterMap() async {
+    if (_currentLocation == null) {
+      await _startLocationUpdates(showErrors: true);
+    }
+
     setState(() {
-      _cameraTarget = NuukMap.center;
+      _cameraTarget = _currentLocation ?? NuukMap.center;
       _activeRoute = null;
       _activeDestination = null;
       _recenterRequest++;
     });
   }
+
+  LatLng? get _routeOrigin => _currentLocation;
 
   void _showSearch() {
     showModalBottomSheet<void>(
@@ -170,11 +199,13 @@ class _NuukHomePageState extends State<NuukHomePage> {
       builder: (context) => _SettingsSheet(
         selectedPalette: _selectedPalette,
         selectedTone: _selectedTone,
+        selectedLanguage: _selectedLanguage,
         selectedMode: _selectedMode,
         openNowOnly: _openNowOnly,
         usesDesktopMapFallback: _usesDesktopMapFallback,
         onPaletteChanged: _setPalette,
         onToneChanged: _setTone,
+        onLanguageChanged: _setLanguage,
         onModeChanged: _setMode,
         onOpenNowChanged: _setOpenNowOnly,
       ),
@@ -217,10 +248,10 @@ class _NuukHomePageState extends State<NuukHomePage> {
   Future<void> _focusSearchEntry(OfflineSearchEntry entry) async {
     Navigator.of(context).pop();
     final repository = await _offlineDataFuture;
-    final route = repository.router.route(
-      from: NuukMap.center,
-      to: entry.coordinate,
-    );
+    final origin = _routeOrigin;
+    final route = origin == null
+        ? null
+        : repository.router.route(from: origin, to: entry.coordinate);
 
     if (!mounted) {
       return;
@@ -233,7 +264,7 @@ class _NuukHomePageState extends State<NuukHomePage> {
       _recenterRequest++;
     });
 
-    _showRouteMessage(route, entry.label);
+    _showRouteMessage(route, entry.label, hasOrigin: origin != null);
   }
 
   Future<void> _startNavigation(Place place) async {
@@ -243,10 +274,10 @@ class _NuukHomePageState extends State<NuukHomePage> {
     );
 
     final repository = await _offlineDataFuture;
-    final route = repository.router.route(
-      from: NuukMap.center,
-      to: place.coordinate,
-    );
+    final origin = _routeOrigin;
+    final route = origin == null
+        ? null
+        : repository.router.route(from: origin, to: place.coordinate);
 
     if (!mounted) {
       return;
@@ -262,7 +293,7 @@ class _NuukHomePageState extends State<NuukHomePage> {
         category: place.category.label,
         group: place.category.label,
         subcategory: place.category.label,
-        icon: 'grocery',
+        icon: place.category.iconKey,
         address: place.address,
         coordinate: place.coordinate,
         searchText: place.name.toLowerCase(),
@@ -270,14 +301,91 @@ class _NuukHomePageState extends State<NuukHomePage> {
       _recenterRequest++;
     });
 
-    _showRouteMessage(route, place.name);
+    _showRouteMessage(route, place.name, hasOrigin: origin != null);
   }
 
-  void _showRouteMessage(OfflineRoute? route, String destination) {
-    final message = route == null
+  void _showRouteMessage(
+    OfflineRoute? route,
+    String destination, {
+    required bool hasOrigin,
+  }) {
+    final message = !hasOrigin
+        ? 'Turn on location access to route from your real position.'
+        : route == null
         ? 'No local driving route found to $destination'
         : '${(route.distanceMeters / 1000).toStringAsFixed(1)} km local route to $destination';
 
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _startLocationUpdates({bool showErrors = false}) async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        if (showErrors && mounted) {
+          _showLocationMessage(
+            'Turn on Location Services to route from your current position.',
+          );
+        }
+        return;
+      }
+
+      var permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      if (permission == LocationPermission.denied ||
+          permission == LocationPermission.deniedForever) {
+        if (showErrors && mounted) {
+          _showLocationMessage(
+            'Allow location access to route from your current position.',
+          );
+        }
+        return;
+      }
+
+      final position = await Geolocator.getCurrentPosition(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+          distanceFilter: 5,
+        ),
+      );
+      _applyPosition(position);
+
+      _locationSubscription ??= Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.best,
+          distanceFilter: 5,
+        ),
+      ).listen(_applyPosition);
+    } on Exception {
+      if (showErrors && mounted) {
+        _showLocationMessage(
+          'Location is not available yet. Try again when GPS has a fix.',
+        );
+      }
+    }
+  }
+
+  void _applyPosition(Position position) {
+    final coordinate = LatLng(position.latitude, position.longitude);
+    if (!NuukMap.contains(coordinate)) {
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _currentLocation = coordinate;
+    });
+  }
+
+  void _showLocationMessage(String message) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
@@ -292,6 +400,8 @@ class _NuukMapView extends StatelessWidget {
     required this.recenterRequest,
     required this.routePoints,
     required this.destination,
+    required this.destinationIcon,
+    required this.currentLocation,
     required this.onPlaceSelected,
   });
 
@@ -301,6 +411,8 @@ class _NuukMapView extends StatelessWidget {
   final int recenterRequest;
   final List<LatLng> routePoints;
   final LatLng? destination;
+  final IconData? destinationIcon;
+  final LatLng? currentLocation;
   final ValueChanged<Place> onPlaceSelected;
 
   @override
@@ -313,6 +425,8 @@ class _NuukMapView extends StatelessWidget {
         recenterRequest: recenterRequest,
         routePoints: routePoints,
         destination: destination,
+        destinationIcon: destinationIcon,
+        currentLocation: currentLocation,
         onPlaceSelected: onPlaceSelected,
       );
     }
@@ -324,6 +438,8 @@ class _NuukMapView extends StatelessWidget {
       recenterRequest: recenterRequest,
       routePoints: routePoints,
       destination: destination,
+      destinationIcon: destinationIcon,
+      currentLocation: currentLocation,
       onPlaceSelected: onPlaceSelected,
     );
   }
@@ -337,6 +453,8 @@ class _NuukDesktopMapView extends StatefulWidget {
     required this.recenterRequest,
     required this.routePoints,
     required this.destination,
+    required this.destinationIcon,
+    required this.currentLocation,
     required this.onPlaceSelected,
   });
 
@@ -346,6 +464,8 @@ class _NuukDesktopMapView extends StatefulWidget {
   final int recenterRequest;
   final List<LatLng> routePoints;
   final LatLng? destination;
+  final IconData? destinationIcon;
+  final LatLng? currentLocation;
   final ValueChanged<Place> onPlaceSelected;
 
   @override
@@ -396,12 +516,13 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
           ),
         fm.MarkerLayer(
           markers: [
-            fm.Marker(
-              point: NuukMap.center,
-              width: 44,
-              height: 44,
-              child: _CarMarker(color: widget.styleChoice.markerFlutterColor),
-            ),
+            if (widget.currentLocation != null)
+              fm.Marker(
+                point: widget.currentLocation!,
+                width: 44,
+                height: 44,
+                child: _CarMarker(color: widget.styleChoice.markerFlutterColor),
+              ),
             if (widget.destination != null)
               fm.Marker(
                 point: widget.destination!,
@@ -409,6 +530,7 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
                 height: 42,
                 child: _DestinationMarker(
                   color: widget.styleChoice.markerFlutterColor,
+                  icon: widget.destinationIcon ?? Icons.near_me,
                 ),
               ),
             for (final place in widget.places)
@@ -418,6 +540,7 @@ class _NuukDesktopMapViewState extends State<_NuukDesktopMapView> {
                 height: 38,
                 child: _PlaceMarker(
                   color: widget.styleChoice.markerFlutterColor,
+                  icon: place.category.icon,
                   onTap: () => widget.onPlaceSelected(place),
                 ),
               ),
@@ -436,6 +559,8 @@ class _NuukMapLibreView extends StatefulWidget {
     required this.recenterRequest,
     required this.routePoints,
     required this.destination,
+    required this.destinationIcon,
+    required this.currentLocation,
     required this.onPlaceSelected,
   });
 
@@ -445,6 +570,8 @@ class _NuukMapLibreView extends StatefulWidget {
   final int recenterRequest;
   final List<LatLng> routePoints;
   final LatLng? destination;
+  final IconData? destinationIcon;
+  final LatLng? currentLocation;
   final ValueChanged<Place> onPlaceSelected;
 
   @override
@@ -455,6 +582,7 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
   ml.MapLibreMapController? _controller;
   String? _styleJson;
   int _styleLoadGeneration = 0;
+  final Set<String> _registeredMarkerImages = {};
 
   @override
   void initState() {
@@ -475,7 +603,9 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
     }
 
     if (oldWidget.routePoints != widget.routePoints ||
-        oldWidget.destination != widget.destination) {
+        oldWidget.destination != widget.destination ||
+        oldWidget.destinationIcon != widget.destinationIcon ||
+        oldWidget.currentLocation != widget.currentLocation) {
       _syncMapAnnotations();
     }
 
@@ -522,7 +652,7 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
       attributionButtonPosition: ml.AttributionButtonPosition.bottomLeft,
       onMapCreated: (controller) {
         _controller = controller;
-        controller.onCircleTapped.add(_handleCircleTapped);
+        controller.onSymbolTapped.add(_handleSymbolTapped);
       },
       onStyleLoadedCallback: _syncMapAnnotations,
     );
@@ -530,17 +660,20 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
 
   @override
   void dispose() {
-    _controller?.onCircleTapped.remove(_handleCircleTapped);
+    _controller?.onSymbolTapped.remove(_handleSymbolTapped);
     super.dispose();
   }
 
   Future<void> _loadStyle() async {
     final generation = ++_styleLoadGeneration;
-    final style = await rootBundle.loadString(widget.styleChoice.assetPath);
+    final style = NuukMap.usesDefaultVectorTileUrl
+        ? widget.styleChoice.mapLibreRasterStyleJson
+        : await rootBundle.loadString(widget.styleChoice.assetPath);
     if (!mounted || generation != _styleLoadGeneration) {
       return;
     }
 
+    _registeredMarkerImages.clear();
     setState(() {
       _styleJson = style.replaceAll(
         NuukMap.vectorTileUrlPlaceholder,
@@ -555,8 +688,8 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
       return;
     }
 
-    await controller.clearCircles();
     await controller.clearLines();
+    await controller.clearSymbols();
     if (widget.routePoints.length > 1) {
       await controller.addLine(
         ml.LineOptions(
@@ -569,50 +702,59 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
         ),
       );
     }
-    await controller.addCircle(
-      ml.CircleOptions(
-        geometry: const ml.LatLng(
-          NuukMap.centerLatitude,
-          NuukMap.centerLongitude,
-        ),
-        circleRadius: 10,
-        circleColor: '#101820',
-        circleOpacity: 0.94,
-        circleStrokeWidth: 3,
-        circleStrokeColor: widget.styleChoice.markerColor,
-      ),
-    );
-    if (widget.destination != null) {
-      await controller.addCircle(
-        ml.CircleOptions(
-          geometry: ml.LatLng(
-            widget.destination!.latitude,
-            widget.destination!.longitude,
-          ),
-          circleRadius: 10,
-          circleColor: widget.styleChoice.markerColor,
-          circleOpacity: 0.96,
-          circleStrokeWidth: 3,
-          circleStrokeColor: '#FFFFFF',
-        ),
+
+    if (widget.currentLocation != null) {
+      await _addMapSymbol(
+        controller: controller,
+        point: widget.currentLocation!,
+        icon: Icons.directions_car,
+        color: widget.styleChoice.markerFlutterColor,
+        selected: true,
       );
     }
-    await controller.addCircles(
-      widget.places
-          .map(
-            (place) => ml.CircleOptions(
-              geometry: ml.LatLng(
-                place.coordinate.latitude,
-                place.coordinate.longitude,
-              ),
-              circleRadius: 7,
-              circleColor: widget.styleChoice.markerColor,
-              circleOpacity: 0.9,
-              circleStrokeWidth: 2,
-              circleStrokeColor: '#FFFFFF',
-            ),
-          )
-          .toList(),
+
+    if (widget.destination != null) {
+      await _addMapSymbol(
+        controller: controller,
+        point: widget.destination!,
+        icon: widget.destinationIcon ?? Icons.near_me,
+        color: widget.styleChoice.markerFlutterColor,
+        selected: true,
+      );
+    }
+
+    for (final place in widget.places) {
+      await _addMapSymbol(
+        controller: controller,
+        point: place.coordinate,
+        icon: place.category.icon,
+        color: widget.styleChoice.markerFlutterColor,
+      );
+    }
+  }
+
+  Future<void> _addMapSymbol({
+    required ml.MapLibreMapController controller,
+    required LatLng point,
+    required IconData icon,
+    required Color color,
+    bool selected = false,
+  }) async {
+    final imageName = _mapIconImageName(icon, color, selected: selected);
+    if (_registeredMarkerImages.add(imageName)) {
+      await controller.addImage(
+        imageName,
+        await _markerImageBytes(icon, color, selected: selected),
+      );
+    }
+
+    await controller.addSymbol(
+      ml.SymbolOptions(
+        geometry: ml.LatLng(point.latitude, point.longitude),
+        iconImage: imageName,
+        iconSize: 1,
+        iconAnchor: 'bottom',
+      ),
     );
   }
 
@@ -630,8 +772,8 @@ class _NuukMapLibreViewState extends State<_NuukMapLibreView> {
     );
   }
 
-  void _handleCircleTapped(ml.Circle circle) {
-    final tappedGeometry = circle.options.geometry;
+  void _handleSymbolTapped(ml.Symbol symbol) {
+    final tappedGeometry = symbol.options.geometry;
     if (tappedGeometry == null) {
       return;
     }
@@ -845,9 +987,14 @@ class _CarMarker extends StatelessWidget {
 }
 
 class _PlaceMarker extends StatelessWidget {
-  const _PlaceMarker({required this.color, required this.onTap});
+  const _PlaceMarker({
+    required this.color,
+    required this.icon,
+    required this.onTap,
+  });
 
   final Color color;
+  final IconData icon;
   final VoidCallback onTap;
 
   @override
@@ -867,16 +1014,17 @@ class _PlaceMarker extends StatelessWidget {
             ),
           ],
         ),
-        child: const Icon(Icons.storefront, color: Colors.white, size: 18),
+        child: Icon(icon, color: Colors.white, size: 18),
       ),
     );
   }
 }
 
 class _DestinationMarker extends StatelessWidget {
-  const _DestinationMarker({required this.color});
+  const _DestinationMarker({required this.color, required this.icon});
 
   final Color color;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
@@ -889,7 +1037,7 @@ class _DestinationMarker extends StatelessWidget {
           BoxShadow(color: Colors.black38, blurRadius: 8, offset: Offset(0, 2)),
         ],
       ),
-      child: const Icon(Icons.flag, color: Colors.white, size: 20),
+      child: Icon(icon, color: Colors.white, size: 20),
     );
   }
 }
@@ -898,22 +1046,26 @@ class _SettingsSheet extends StatelessWidget {
   const _SettingsSheet({
     required this.selectedPalette,
     required this.selectedTone,
+    required this.selectedLanguage,
     required this.selectedMode,
     required this.openNowOnly,
     required this.usesDesktopMapFallback,
     required this.onPaletteChanged,
     required this.onToneChanged,
+    required this.onLanguageChanged,
     required this.onModeChanged,
     required this.onOpenNowChanged,
   });
 
   final MapPalette selectedPalette;
   final MapTone selectedTone;
+  final _AppLanguage selectedLanguage;
   final TransportMode selectedMode;
   final bool openNowOnly;
   final bool usesDesktopMapFallback;
   final ValueChanged<MapPalette> onPaletteChanged;
   final ValueChanged<MapTone> onToneChanged;
+  final ValueChanged<_AppLanguage> onLanguageChanged;
   final ValueChanged<TransportMode> onModeChanged;
   final ValueChanged<bool> onOpenNowChanged;
 
@@ -946,6 +1098,18 @@ class _SettingsSheet extends StatelessWidget {
               ],
               selected: {selectedTone},
               onSelectionChanged: (selection) => onToneChanged(selection.first),
+            ),
+          ),
+          _OptionGroup(
+            label: 'Language',
+            child: SegmentedButton<_AppLanguage>(
+              segments: [
+                for (final language in _AppLanguage.values)
+                  ButtonSegment(value: language, label: Text(language.label)),
+              ],
+              selected: {selectedLanguage},
+              onSelectionChanged: (selection) =>
+                  onLanguageChanged(selection.first),
             ),
           ),
           _OptionGroup(
@@ -1380,6 +1544,16 @@ bool get _usesDesktopMapFallback {
   };
 }
 
+enum _AppLanguage {
+  english('English', 'My location'),
+  greenlandic('Kalaallisut', 'Sumiiffiga');
+
+  const _AppLanguage(this.label, this.myLocation);
+
+  final String label;
+  final String myLocation;
+}
+
 extension on TransportMode {
   IconData get icon => switch (this) {
     TransportMode.drive => Icons.directions_car,
@@ -1387,6 +1561,26 @@ extension on TransportMode {
     TransportMode.walk => Icons.directions_walk,
     TransportMode.taxi => Icons.local_taxi,
     TransportMode.bike => Icons.directions_bike,
+  };
+}
+
+extension on PlaceCategory {
+  IconData get icon => switch (this) {
+    PlaceCategory.groceries => Icons.local_grocery_store,
+    PlaceCategory.cafe => Icons.local_cafe,
+    PlaceCategory.pharmacy => Icons.local_pharmacy,
+    PlaceCategory.fuel => Icons.local_gas_station,
+    PlaceCategory.culture => Icons.museum,
+    PlaceCategory.publicService => Icons.account_balance,
+  };
+
+  String get iconKey => switch (this) {
+    PlaceCategory.groceries => 'grocery',
+    PlaceCategory.cafe => 'cafe',
+    PlaceCategory.pharmacy => 'service',
+    PlaceCategory.fuel => 'fuel',
+    PlaceCategory.culture => 'museum',
+    PlaceCategory.publicService => 'service',
   };
 }
 
@@ -1430,6 +1624,37 @@ IconData _iconForSubcategory(String group, String subcategory) {
 }
 
 extension on NuukMapStyleChoice {
+  String get mapLibreRasterStyleJson {
+    final background = tone == MapTone.dark ? '#111412' : '#F4F1EA';
+    final opacity = tone == MapTone.dark ? 0.74 : 0.92;
+
+    return jsonEncode({
+      'version': 8,
+      'name': 'Nuuk City Live ${palette.label} ${tone.label} raster',
+      'sources': {
+        'osm-raster': {
+          'type': 'raster',
+          'tiles': [NuukMap.rasterTileUrl],
+          'tileSize': 256,
+          'attribution': 'OpenStreetMap contributors',
+        },
+      },
+      'layers': [
+        {
+          'id': 'background',
+          'type': 'background',
+          'paint': {'background-color': background},
+        },
+        {
+          'id': 'osm-raster',
+          'type': 'raster',
+          'source': 'osm-raster',
+          'paint': {'raster-opacity': opacity},
+        },
+      ],
+    });
+  }
+
   fm.TileBuilder get rasterTileBuilder {
     return (context, tileWidget, tile) {
       final tonedTile = tone == MapTone.dark
@@ -1448,4 +1673,56 @@ extension on NuukMapStyleChoice {
       );
     };
   }
+}
+
+String _mapIconImageName(IconData icon, Color color, {required bool selected}) {
+  final colorId = color.toString().replaceAll(RegExp('[^0-9A-Za-z]'), '');
+  return 'ncl-${icon.codePoint}-$colorId-${selected ? 'selected' : 'normal'}';
+}
+
+Future<Uint8List> _markerImageBytes(
+  IconData icon,
+  Color color, {
+  required bool selected,
+}) async {
+  final size = selected ? 72.0 : 58.0;
+  final recorder = ui.PictureRecorder();
+  final canvas = Canvas(recorder);
+  final center = Offset(size / 2, size / 2);
+  final radius = selected ? 26.0 : 21.0;
+
+  canvas.drawCircle(center, radius + 4, Paint()..color = Colors.white);
+  canvas.drawCircle(center, radius, Paint()..color = color);
+  canvas.drawCircle(
+    center,
+    radius + 7,
+    Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = selected ? 5 : 3
+      ..color = const Color(0xAA101820),
+  );
+
+  final textPainter = TextPainter(
+    text: TextSpan(
+      text: String.fromCharCode(icon.codePoint),
+      style: TextStyle(
+        color: Colors.white,
+        fontFamily: icon.fontFamily,
+        fontSize: selected ? 34 : 27,
+      ),
+    ),
+    textDirection: TextDirection.ltr,
+  )..layout();
+
+  textPainter.paint(
+    canvas,
+    Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
+  );
+
+  final image = await recorder.endRecording().toImage(
+    size.toInt(),
+    size.toInt(),
+  );
+  final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+  return byteData!.buffer.asUint8List();
 }

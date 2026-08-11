@@ -20,6 +20,8 @@ class NuukMap {
     'NCL_VECTOR_TILE_URL',
     defaultValue: vectorTileUrlPlaceholder,
   );
+  static const usesDefaultVectorTileUrl =
+      vectorTileUrl == vectorTileUrlPlaceholder;
   static const userAgentPackageName = 'com.nuukcitylive.app';
 
   static LatLng clampToBounds(LatLng point) {
@@ -27,5 +29,12 @@ class NuukMap {
       point.latitude.clamp(southLatitude, northLatitude),
       point.longitude.clamp(westLongitude, eastLongitude),
     );
+  }
+
+  static bool contains(LatLng point) {
+    return point.latitude >= southLatitude &&
+        point.latitude <= northLatitude &&
+        point.longitude >= westLongitude &&
+        point.longitude <= eastLongitude;
   }
 }

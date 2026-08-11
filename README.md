@@ -8,6 +8,8 @@ Nuuk City Live is a Flutter/Dart app for navigation and local city information i
 - Map-first home screen with floating search, places, routing, recenter, and settings controls.
 - Category-first Places sheet that starts empty until a category is selected.
 - Grocery taxonomy for Brugseni, Pisiffik, Akiki, and Nukob, with convenience stores grouped under Grocery but shown with a separate icon.
+- Real device location is used as the route origin when GPS is available; the Nuuk center is no longer shown or used as a fake car position.
+- English is the default app language, with a Kalaallisut option available from settings.
 - Offline Nuuk address, street, and store search generated from the Greenland OSM extract.
 - Offline Nuuk driving route graph generated from the same extract.
 - Transport mode model for drive, bus, walk, taxi, and bike.
@@ -27,12 +29,22 @@ Android debugging with MapLibre requires JDK 21. This machine has Temurin JDK 21
 
 ## GitHub Builds
 
-The workflow in `.github/workflows/flutter_debug_builds.yml` runs on every push to `main` and can also be started manually from the GitHub Actions tab. It uploads these artifacts:
+The workflow in `.github/workflows/flutter_debug_builds.yml` only runs when started manually from the GitHub Actions tab. Use the `target` input to choose `android`, `ios`, or `all`. It uploads these artifacts:
 
 - `Nuuk-City-Live-android-debug-apk`: Android debug APK for quick device testing.
 - `Nuuk-City-Live-ios-unsigned-ipa`: unsigned iOS IPA built on GitHub-hosted macOS without requiring local Xcode.
 
 The unsigned IPA is packaged for signing or sideload tooling, but real CarPlay testing still requires a signed build with the correct Apple CarPlay entitlement on the app identifier.
+
+## Curated Place Editor
+
+The starter illustrated places are backed by `assets/data/curated_places.json`. To preview and edit their names, categories, coordinates, opening hours, and image URLs, run:
+
+```powershell
+python tool/places/preview_places.py
+```
+
+Use `Save all` in the editor to update the JSON and regenerate `lib/src/data/nuuk_places.dart`. If `python` is not on PATH, install Python or fix the Windows `py` launcher before running the editor.
 
 ## OpenStreetMap Notes
 
