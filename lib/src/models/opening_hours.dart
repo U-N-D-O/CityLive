@@ -28,6 +28,10 @@ class OpeningHours {
   }
 
   String get summary {
+    if (weekdayOpen == 0 && weekdayClose == 0) {
+      return 'Opening hours not added yet';
+    }
+
     final weekday = 'Mon-Fri ${_format(weekdayOpen)}-${_format(weekdayClose)}';
     final saturday = saturdayOpen == null || saturdayClose == null
         ? 'Sat closed'

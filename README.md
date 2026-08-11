@@ -54,6 +54,8 @@ tool\places\open_place_editor.cmd
 
 Use `Choose picture` to select a local image for the selected place. The editor copies it into `assets/pictures/places/` using the place id, for example `assets/pictures/places/brugseni-nuuk.png`, and updates the place to use that bundled asset instead of an online URL.
 
+Use `Add place` to create a new editable entry, `Remove place` to delete the selected entry, and `Import index` to add every offline index record whose category is not `Place`. Imported records start without a picture or opening hours so they can be filled in manually.
+
 Use `Save all` in the editor to update the JSON and regenerate `lib/src/data/nuuk_places.dart`. The launcher starts Python if it is installed, or offers to install Python 3.12 for the current Windows user with `winget` if the local Python launcher is broken.
 
 ## OpenStreetMap Notes

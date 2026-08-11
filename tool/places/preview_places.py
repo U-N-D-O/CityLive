@@ -13,14 +13,19 @@ from __future__ import annotations
 
 import json
 import pathlib
+import hashlib
+import re
 import shutil
+import sys
 import tkinter as tk
+import unicodedata
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Dict, List, Optional
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 CATALOG_PATH = ROOT / "assets" / "data" / "curated_places.json"
+SEARCH_INDEX_PATH = ROOT / "assets" / "data" / "nuuk_search_index.json"
 DART_PATH = ROOT / "lib" / "src" / "data" / "nuuk_places.dart"
 PLACE_PICTURES_DIR = ROOT / "assets" / "pictures" / "places"
 
@@ -50,6 +55,15 @@ FIELDS = [
     "sundayClose",
 ]
 
+DEFAULT_OPENING_HOURS = {
+    "weekdayOpen": 0,
+    "weekdayClose": 0,
+    "saturdayOpen": None,
+    "saturdayClose": None,
+    "sundayOpen": None,
+    "sundayClose": None,
+}
+
 
 def dart_string(value: str) -> str:
     escaped = value.replace("\\", "\\\\").replace("'", "\\'")
@@ -65,6 +79,12 @@ def nullable_hour(value: object) -> str:
 def load_places() -> List[Dict[str, Any]]:
     with CATALOG_PATH.open("r", encoding="utf-8") as handle:
         return json.load(handle)
+
+
+def load_search_index_entries() -> List[Dict[str, Any]]:
+    with SEARCH_INDEX_PATH.open("r", encoding="utf-8") as handle:
+        data = json.load(handle)
+    return data.get("entries", [])
 
 
 def save_places(places: List[Dict[str, Any]]) -> None:
@@ -125,11 +145,79 @@ def parse_hour(value: str) -> Optional[int]:
     return hour
 
 
+def slugify(value: str) -> str:
+    ascii_value = unicodedata.normalize("NFKD", value).encode("ascii", "ignore").decode("ascii")
+    slug = re.sub(r"[^a-z0-9]+", "-", ascii_value.lower()).strip("-")
+    return slug[:48].strip("-") or "place"
+
+
+def index_place_id(entry: Dict[str, Any]) -> str:
+    source_id = str(entry.get("id") or entry.get("searchText") or entry.get("label") or "place")
+    digest = hashlib.sha1(source_id.encode("utf-8")).hexdigest()[:8]
+    return f"index-{slugify(str(entry.get('label') or 'place'))}-{digest}"
+
+
+def category_for_index_entry(entry: Dict[str, Any]) -> str:
+    category = str(entry.get("category") or "").lower()
+    group = str(entry.get("group") or "").lower()
+    icon = str(entry.get("icon") or "").lower()
+
+    if any(value in category for value in ["grocery", "convenience", "supermarket"]):
+        return "groceries"
+    if group == "food & drink" or any(
+        value in category for value in ["restaurant", "cafe", "fast food", "bar"]
+    ):
+        return "cafe"
+    if "pharmacy" in category:
+        return "pharmacy"
+    if "fuel" in category or icon == "fuel":
+        return "fuel"
+    if group == "attractions" or any(
+        value in category
+        for value in ["museum", "theatre", "artwork", "culture", "community centre"]
+    ):
+        return "culture"
+    return "publicService"
+
+
+def place_from_index_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "id": index_place_id(entry),
+        "name": str(entry.get("label") or "Unnamed place"),
+        "category": category_for_index_entry(entry),
+        "latitude": float(entry["latitude"]),
+        "longitude": float(entry["longitude"]),
+        "address": str(entry.get("address") or entry.get("subcategory") or entry.get("category") or ""),
+        "imageUrl": "",
+        "phone": "",
+        "openingHours": dict(DEFAULT_OPENING_HOURS),
+    }
+
+
+def import_index_places(places: List[Dict[str, Any]]) -> int:
+    existing_ids = {str(place.get("id")) for place in places}
+    imported = []
+    for entry in load_search_index_entries():
+        if entry.get("group") == "Address" or entry.get("category") == "Place":
+            continue
+        if not entry.get("label") or "latitude" not in entry or "longitude" not in entry:
+            continue
+        place = place_from_index_entry(entry)
+        if place["id"] in existing_ids:
+            continue
+        existing_ids.add(place["id"])
+        imported.append(place)
+
+    imported.sort(key=lambda place: (place["category"], place["name"].casefold()))
+    places.extend(imported)
+    return len(imported)
+
+
 class PlaceEditor(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Nuuk City Live Places")
-        self.geometry("1040x650")
+        self.geometry("1180x680")
         self.places = load_places()
         self.selected_index = 0
         self.vars: Dict[str, tk.StringVar] = {
@@ -164,26 +252,35 @@ class PlaceEditor(tk.Tk):
 
         buttons = ttk.Frame(editor)
         buttons.grid(row=row, column=0, columnspan=2, sticky="ew", pady=(14, 0))
-        for column in range(6):
+        for column in range(9):
             buttons.columnconfigure(column, weight=1)
 
-        ttk.Button(buttons, text="Choose picture", command=self.choose_picture).grid(
+        ttk.Button(buttons, text="Add place", command=self.add_place).grid(
             row=0, column=0, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Open image", command=self.open_image).grid(
+        ttk.Button(buttons, text="Remove place", command=self.remove_place).grid(
             row=0, column=1, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Open map", command=self.open_map).grid(
+        ttk.Button(buttons, text="Import index", command=self.import_index).grid(
             row=0, column=2, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Save place", command=self.save_current).grid(
+        ttk.Button(buttons, text="Choose picture", command=self.choose_picture).grid(
             row=0, column=3, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Save all", command=self.save_all).grid(
+        ttk.Button(buttons, text="Open image", command=self.open_image).grid(
             row=0, column=4, sticky="ew", padx=3
         )
-        ttk.Button(buttons, text="Regenerate Dart", command=self.regenerate).grid(
+        ttk.Button(buttons, text="Open map", command=self.open_map).grid(
             row=0, column=5, sticky="ew", padx=3
+        )
+        ttk.Button(buttons, text="Save place", command=self.save_current).grid(
+            row=0, column=6, sticky="ew", padx=3
+        )
+        ttk.Button(buttons, text="Save all", command=self.save_all).grid(
+            row=0, column=7, sticky="ew", padx=3
+        )
+        ttk.Button(buttons, text="Regenerate Dart", command=self.regenerate).grid(
+            row=0, column=8, sticky="ew", padx=3
         )
 
         self.refresh_list()
@@ -197,6 +294,7 @@ class PlaceEditor(tk.Tk):
     def select_index(self, index: int) -> None:
         if not self.places:
             return
+        index = max(0, min(index, len(self.places) - 1))
         self.selected_index = index
         self.place_list.selection_clear(0, tk.END)
         self.place_list.selection_set(index)
@@ -228,18 +326,30 @@ class PlaceEditor(tk.Tk):
             self.select_index(selection[0])
 
     def place_from_form(self) -> Dict[str, Any]:
+        place_id = self.vars["id"].get().strip()
+        name = self.vars["name"].get().strip()
+        category = self.vars["category"].get().strip()
+        if not place_id:
+            raise ValueError("id is required")
+        if not name:
+            raise ValueError("name is required")
+        if category not in CATEGORIES:
+            raise ValueError(f"category must be one of: {', '.join(CATEGORIES)}")
+
+        weekday_open = parse_hour(self.vars["weekdayOpen"].get())
+        weekday_close = parse_hour(self.vars["weekdayClose"].get())
         return {
-            "id": self.vars["id"].get().strip(),
-            "name": self.vars["name"].get().strip(),
-            "category": self.vars["category"].get().strip(),
+            "id": place_id,
+            "name": name,
+            "category": category,
             "latitude": float(self.vars["latitude"].get()),
             "longitude": float(self.vars["longitude"].get()),
             "address": self.vars["address"].get().strip(),
             "imageUrl": self.vars["imageUrl"].get().strip(),
             "phone": self.vars["phone"].get().strip(),
             "openingHours": {
-                "weekdayOpen": parse_hour(self.vars["weekdayOpen"].get()),
-                "weekdayClose": parse_hour(self.vars["weekdayClose"].get()),
+                "weekdayOpen": 0 if weekday_open is None else weekday_open,
+                "weekdayClose": 0 if weekday_close is None else weekday_close,
                 "saturdayOpen": parse_hour(self.vars["saturdayOpen"].get()),
                 "saturdayClose": parse_hour(self.vars["saturdayClose"].get()),
                 "sundayOpen": parse_hour(self.vars["sundayOpen"].get()),
@@ -255,6 +365,67 @@ class PlaceEditor(tk.Tk):
             return
         self.refresh_list()
         self.select_index(self.selected_index)
+
+    def next_custom_id(self) -> str:
+        existing_ids = {str(place.get("id")) for place in self.places}
+        index = 1
+        while True:
+            place_id = f"new-place-{index}"
+            if place_id not in existing_ids:
+                return place_id
+            index += 1
+
+    def add_place(self) -> None:
+        if self.places:
+            try:
+                self.places[self.selected_index] = self.place_from_form()
+            except Exception as error:
+                messagebox.showerror("Could not save current place", str(error))
+                return
+
+        self.places.append(
+            {
+                "id": self.next_custom_id(),
+                "name": "New place",
+                "category": "publicService",
+                "latitude": 64.17734,
+                "longitude": -51.68750,
+                "address": "",
+                "imageUrl": "",
+                "phone": "",
+                "openingHours": dict(DEFAULT_OPENING_HOURS),
+            }
+        )
+        self.refresh_list()
+        self.select_index(len(self.places) - 1)
+
+    def remove_place(self) -> None:
+        if not self.places:
+            return
+        place = self.places[self.selected_index]
+        if not messagebox.askyesno("Remove place", f"Remove {place.get('name', 'this place')}?"):
+            return
+        del self.places[self.selected_index]
+        self.refresh_list()
+        if self.places:
+            self.select_index(self.selected_index)
+        else:
+            for var in self.vars.values():
+                var.set("")
+
+    def import_index(self) -> None:
+        if self.places:
+            try:
+                self.places[self.selected_index] = self.place_from_form()
+            except Exception as error:
+                messagebox.showerror("Could not save current place", str(error))
+                return
+        added = import_index_places(self.places)
+        save_places(self.places)
+        generate_dart(self.places)
+        self.refresh_list()
+        self.select_index(self.selected_index)
+        messagebox.showinfo("Import complete", f"Added {added} places from the offline index.")
 
     def save_all(self) -> None:
         self.save_current()
@@ -320,6 +491,14 @@ class PlaceEditor(tk.Tk):
 
 
 if __name__ == "__main__":
+    if "--import-index" in sys.argv:
+        current_places = load_places()
+        imported_count = import_index_places(current_places)
+        save_places(current_places)
+        generate_dart(current_places)
+        print(f"Imported {imported_count} places from {SEARCH_INDEX_PATH.relative_to(ROOT)}")
+        sys.exit(0)
+
     try:
         PlaceEditor().mainloop()
     except FileNotFoundError as error:

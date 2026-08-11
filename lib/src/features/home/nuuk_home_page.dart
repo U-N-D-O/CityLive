@@ -1716,11 +1716,24 @@ class _PlaceImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (path.startsWith('assets/')) {
-      return Image.asset(path, fit: BoxFit.cover);
+    final trimmedPath = path.trim();
+    if (trimmedPath.isEmpty) {
+      final colorScheme = Theme.of(context).colorScheme;
+      return ColoredBox(
+        color: colorScheme.surfaceContainerHighest,
+        child: Icon(
+          Icons.image_not_supported_outlined,
+          color: colorScheme.onSurfaceVariant,
+          size: 38,
+        ),
+      );
     }
 
-    return Image.network(path, fit: BoxFit.cover);
+    if (trimmedPath.startsWith('assets/')) {
+      return Image.asset(trimmedPath, fit: BoxFit.cover);
+    }
+
+    return Image.network(trimmedPath, fit: BoxFit.cover);
   }
 }
 
